@@ -1,0 +1,161 @@
+import Foundation
+
+// MARK: - In-module unit tests for the Intent parser (Intent/)
+//
+// `runIntentTests()` is intentionally main-free so it can live inside the app
+// target without colliding with main.swift. The orchestrator (or a scratch
+// harness compiled OUTSIDE the SPM package) invokes it and prints the counts.
+//
+// Build/run standalone (from repo root):
+//   swiftc -swift-version 6 Sources/Voicy/Intent/IntentParser.swift \
+//     Sources/Voicy/Intent/IntentTests.swift /tmp/voicy_intent_main.swift \
+//     -o /tmp/voicy_intent_tests && /tmp/voicy_intent_tests
+
+/// Runs every Intent parser test. Returns (passed, failed); prints each failure.
+public func runIntentTests() -> (passed: Int, failed: Int) {
+    var passed = 0
+    var failed = 0
+
+    func pass(_ label: String) {
+        passed += 1
+        print("PASS: \(label)")
+    }
+
+    func fail(_ label: String, _ detail: String) {
+        failed += 1
+        print("FAIL: \(label) — \(detail)")
+    }
+
+    /// Asserts a full parse: recipient, byte-identical body, and app.
+    func expect(_ transcript: String, recipient: String, body: String,
+                app: MessagingApp, _ label: String) {
+        let parser = IntentParser()
+        switch parser.parse(transcript) {
+        case .parsed(let intent):
+            var ok = true
+            if intent.recipientText != recipient {
+                ok = false
+                fail(label, "recipient got '\(intent.recipientText)' want '\(recipient)'")
+            }
+            if intent.body != body {
+                ok = false
+                fail(label, "body got '\(intent.body)' want '\(body)'")
+            }
+            if intent.app != app {
+                ok = false
+                fail(label, "app got \(intent.app) want \(app)")
+            }
+            // Fidelity rule: the body must be a literal substring of the input.
+            if !transcript.contains(intent.body) {
+                ok = false
+                fail(label, "body '\(intent.body)' is NOT a substring of the transcript")
+            }
+            if ok { pass(label) }
+        case .notParsed(let reason):
+            fail(label, "expected parsed, got notParsed(\(reason))")
+        }
+    }
+
+    /// Asserts a transcript is rejected.
+    func expectNotParsed(_ transcript: String, _ label: String) {
+        let parser = IntentParser()
+        switch parser.parse(transcript) {
+        case .parsed(let intent):
+            fail(label, "expected notParsed, got parsed(\(intent.recipientText): \(intent.body))")
+        case .notParsed:
+            pass(label)
+        }
+    }
+
+    // MARK: Required phrasings
+
+    expect("message Pulkit that I'll reach Bangalore tomorrow",
+           recipient: "Pulkit", body: "I'll reach Bangalore tomorrow", app: .whatsapp,
+           "connector 'that' stripped once")
+
+    expect("message Pulkit saying I am late",
+           recipient: "Pulkit", body: "I am late", app: .whatsapp,
+           "connector 'saying'")
+
+    expect("message Pulkit I am late",
+           recipient: "Pulkit", body: "I am late", app: .whatsapp,
+           "no connector, 'I' pronoun boundary")
+
+    expect("tell Rahul Sharma that the meeting is at five",
+           recipient: "Rahul Sharma", body: "the meeting is at five", app: .whatsapp,
+           "multi-word name + 'that'")
+
+    expect("send Aarav a message saying happy birthday",
+           recipient: "Aarav", body: "happy birthday", app: .whatsapp,
+           "'send X a message saying ...' filler + connector")
+
+    expect("whatsapp Shreya I'll call you",
+           recipient: "Shreya", body: "I'll call you", app: .whatsapp,
+           "app verb 'whatsapp' -> .whatsapp")
+
+    expect("text Siddharth on my way",
+           recipient: "Siddharth", body: "on my way", app: .whatsapp,
+           "verb 'text' + 'on' preposition boundary")
+
+    expect("message Pulkit ki main kal aaunga",
+           recipient: "Pulkit", body: "main kal aaunga", app: .whatsapp,
+           "Hinglish connector 'ki'")
+
+    expect("hey voicy message Aditi that I'm outside",
+           recipient: "Aditi", body: "I'm outside", app: .whatsapp,
+           "optional wake phrase 'hey voicy'")
+
+    expect("message Pulkit that that report is done",
+           recipient: "Pulkit", body: "that report is done", app: .whatsapp,
+           "second 'that' inside body is preserved")
+
+    expect("message Pulkit, hello",
+           recipient: "Pulkit", body: "hello", app: .whatsapp,
+           "name terminated by comma, body after")
+
+    expect("tell Rahul Sharma the meeting is at five",
+           recipient: "Rahul Sharma", body: "the meeting is at five", app: .whatsapp,
+           "multi-word name, no connector, 'the' boundary")
+
+    // MARK: Name-last — "to <Name>" recipient phrase (the main fix)
+
+    expect("send hello to Pulkit",
+           recipient: "Pulkit", body: "hello", app: .whatsapp,
+           "name-last: 'send body to name'")
+
+    expect("say hello to Pulkit",
+           recipient: "Pulkit", body: "hello", app: .whatsapp,
+           "name-last: verb 'say'")
+
+    expect("send a message to Pulkit saying I am late",
+           recipient: "Pulkit", body: "I am late", app: .whatsapp,
+           "name-last: 'send a message to X saying ...' filler")
+
+    expect("send I'll be there in ten minutes to Aarav",
+           recipient: "Aarav", body: "I'll be there in ten minutes", app: .whatsapp,
+           "name-last: multi-word body before 'to'")
+
+    expect("message to Pulkit that I am late",
+           recipient: "Pulkit", body: "I am late", app: .whatsapp,
+           "name-last: leading 'to' + connector 'that'")
+
+    expect("send this to Pulkit: I am late",
+           recipient: "Pulkit", body: "I am late", app: .whatsapp,
+           "name-last: trailing colon after name")
+
+    expect("hey voicy send hello to Pulkit",
+           recipient: "Pulkit", body: "hello", app: .whatsapp,
+           "name-last: optional wake phrase")
+
+    expect("send hello to Rahul Sharma",
+           recipient: "Rahul Sharma", body: "hello", app: .whatsapp,
+           "name-last: multi-word name in 'to' form")
+
+    // MARK: Rejections
+
+    expectNotParsed("what is the weather", "no command verb")
+    expectNotParsed("message", "verb only, no recipient or body")
+    expectNotParsed("", "empty transcript")
+
+    return (passed, failed)
+}
