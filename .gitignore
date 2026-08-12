@@ -13,3 +13,9 @@ NEEDS-YOU.md
 CLAUDE.md
 commits.sh
 push.sh
+
+# generated test audio (regenerate with Tools/gen-test-audio.sh)
+Tests/audio/*.wav
+
+# worker scratch output
+landing/WORKER-REPORT.md

@@ -12,6 +12,12 @@ setvbuf(stdout, nil, _IONBF, 0)
 // Must run before NSApplication takes over the main thread.
 runSelfTestIfRequested()
 
+// Test harness: `--test-audio <file>`, `--test-audio-suite <manifest>`,
+// `--unit-tests`, `--test-latency`. Feeds pre-recorded audio into the real
+// pipeline so every stage after the microphone is verifiable without a human
+// holding a key and speaking. Returns immediately when no test flag is present.
+runTestHarnessIfRequested()
+
 let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate

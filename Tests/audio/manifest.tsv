@@ -1,0 +1,56 @@
+# Voicy audio regression manifest. TAB separated. Regenerate the WAVs with:
+#   Tools/gen-test-audio.sh
+# Then run the suite with:
+#   dist/Voicy.app/Contents/MacOS/Voicy --test-audio-suite Tests/audio/manifest.tsv
+#
+# Columns:
+#   name  voice  spoken-text  expect-recipient  expect-body  expect-resolution
+#
+# expect-recipient is matched against the RESOLVED contact display name (or the
+# spoken name when nothing resolved). expect-body is compared loosely: case,
+# punctuation and repeated whitespace are ignored, because a recognizer
+# capitalizes and punctuates at its own discretion and that is not a bug.
+# Leave a column empty to skip that assertion.
+#
+# Voices: Samantha (en_US), Aman (en_IN) for Indian English, Daniel (en_GB).
+
+# --- Core phrasings: verb, name, connector, body.
+msg-pulkit-that	Samantha	Message Pulkit that I will reach Bangalore tomorrow.	Pulkit Sharma	I will reach Bangalore tomorrow	resolved
+msg-pulkit-saying	Samantha	Message Pulkit saying I am late.	Pulkit Sharma	I am late	resolved
+msg-pulkit-bare	Samantha	Message Pulkit I am on my way.	Pulkit Sharma	I am on my way	resolved
+tell-fullname	Samantha	Tell Rahul Verma that the meeting is at five.	Rahul Verma	the meeting is at five	resolved
+send-a-message	Samantha	Send Aarav a message saying happy birthday.	Aarav Mehta	happy birthday	resolved
+text-verb	Samantha	Text Siddharth on my way now.	Siddharth Nair	on my way now	resolved
+
+# --- Name-last shapes. The parser used to resolve the recipient as "hello".
+name-last-send	Samantha	Send hello to Pulkit.	Pulkit Sharma	hello	resolved
+name-last-say	Samantha	Say hi to Aarav.	Aarav Mehta	hi	resolved
+name-last-tell	Samantha	Tell Pulkit I am late.	Pulkit Sharma	I am late	resolved
+name-last-long	Samantha	Send a message to Pulkit saying I will call you in ten minutes.	Pulkit Sharma	I will call you in ten minutes	resolved
+name-last-before	Samantha	Send I will be there in ten minutes to Aarav.	Aarav Mehta	I will be there in ten minutes	resolved
+
+# --- Indian English voice. Contact-name biasing is what makes these work.
+indian-shreya	Aman	Message Shreya that I am reaching in ten minutes.	Shreya Iyer	I am reaching in ten minutes	resolved
+indian-siddharth	Aman	Tell Siddharth that the file is ready.	Siddharth Nair	the file is ready	resolved
+indian-aditi	Aman	Send a message to Aditi saying call me back.	Aditi Rao	call me back	resolved
+
+# --- British voice, to prove the engine is not tuned to one accent.
+british-pulkit	Daniel	Message Pulkit that I am running late.	Pulkit Sharma	I am running late	resolved
+
+# --- Safety: two people named Rahul. Voicy must ASK, never guess.
+ambiguous-rahul	Samantha	Message Rahul that I am late.		I am late	ambiguous
+
+# --- Safety: a contact with no phone number resolves but must not be sendable.
+no-number	Samantha	Message Meera Krishnan that I am late.	Meera Krishnan	I am late	resolved
+
+# --- Safety: a name nobody has must not match anybody.
+unknown-name	Samantha	Message Xavier Quinlan that I am late.		I am late	notFound
+
+# --- Bodies that would corrupt the deep link if not percent-encoded.
+special-chars	Samantha	Message Pulkit that it is fifty percent off, and I need an answer.	Pulkit Sharma		resolved
+
+# --- Long body. The whole utterance must survive as one contiguous slice.
+long-body	Samantha	Message Pulkit that I am leaving the office now and I will pick up the documents on the way, so please wait for me near the main gate.	Pulkit Sharma		resolved
+
+# --- Rejection: no command verb at all. Must not invent a recipient.
+no-verb	Samantha	What is the weather in Bangalore today.

@@ -1,0 +1,558 @@
+import AVFoundation
+import Foundation
+
+// MARK: - Audio injection harness
+//
+// The problem this solves: nobody can hold a hotkey and speak on demand, so
+// every stage after the microphone was unverifiable. This feeds pre-recorded
+// audio straight into the same `[Float]` 16 kHz mono seam the mic produces, and
+// then runs the real transcriber, the real parser, the real resolver and the
+// real deep-link builder over it.
+//
+// Nothing here is stubbed. If the transcriber cannot transcribe, the harness
+// reports a failure — it never substitutes a canned string.
+//
+// Usage (run the BUNDLED binary so TCC permissions apply):
+//   dist/Voicy.app/Contents/MacOS/Voicy --test-audio Tests/audio/msg-pulkit.wav
+//   dist/Voicy.app/Contents/MacOS/Voicy --test-audio-suite Tests/audio/manifest.tsv
+//   dist/Voicy.app/Contents/MacOS/Voicy --unit-tests
+//
+// Flags:
+//   --expect-recipient <name>   assert the resolved contact's display name
+//   --expect-body <text>        assert the message body (loose match by default)
+//   --expect-transcript <text>  assert the transcript (loose match by default)
+//   --strict                    make the assertions byte-exact
+//   --real-contacts             use the address book instead of the fixtures
+//   --repeat <n>                run the clip n times (latency measurement)
+//   --quiet                     one summary line per clip, no stage table
+
+/// Sync entry for main.swift, mirroring `runSelfTestIfRequested()`. Returns
+/// immediately unless a test flag is present; otherwise runs and exits.
+@MainActor
+func runTestHarnessIfRequested() {
+    let args = CommandLine.arguments
+    let modes = ["--test-audio", "--test-audio-suite", "--unit-tests", "--test-latency"]
+    guard args.contains(where: { modes.contains($0) }) else { return }
+
+    let done = CompletionFlag()
+    var exitCode: Int32 = 0
+
+    Task { @MainActor in
+        exitCode = await TestHarness(args: args).run()
+        done.value = true
+    }
+
+    // Pump the main run loop rather than blocking on a semaphore: parts of the
+    // pipeline (ContactIndex) are main-actor isolated, so a blocked main thread
+    // would deadlock instead of finishing.
+    while !done.value {
+        RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
+    }
+    exit(exitCode)
+}
+
+@MainActor
+private final class CompletionFlag {
+    var value = false
+}
+
+// MARK: - Harness
+
+@MainActor
+struct TestHarness {
+    let args: [String]
+
+    // MARK: Flag access
+
+    private func value(for flag: String) -> String? {
+        guard let i = args.firstIndex(of: flag), i + 1 < args.count else { return nil }
+        let next = args[i + 1]
+        return next.hasPrefix("--") ? nil : next
+    }
+
+    private func has(_ flag: String) -> Bool { args.contains(flag) }
+
+    private var strict: Bool { has("--strict") }
+    private var quiet: Bool { has("--quiet") }
+    private var repeatCount: Int { max(1, Int(value(for: "--repeat") ?? "1") ?? 1) }
+
+    // MARK: Entry
+
+    func run() async -> Int32 {
+        var failures = 0
+
+        if has("--unit-tests") {
+            failures += runUnitTests()
+        }
+
+        if let path = value(for: "--test-audio") {
+            let contacts = await contactSet()
+            let engine = await warmEngine()
+            var results: [InjectionOutcome] = []
+            for iteration in 0..<repeatCount {
+                let outcome = await inject(path: path, contacts: contacts, engine: engine,
+                                           label: repeatCount > 1 ? "run \(iteration + 1)/\(repeatCount)" : nil)
+                results.append(outcome)
+            }
+            failures += report(results, contacts: contacts)
+        }
+
+        if let manifest = value(for: "--test-audio-suite") {
+            failures += await runSuite(manifestPath: manifest)
+        }
+
+        if has("--test-latency") {
+            await runLatencyProbe()
+        }
+
+        print("")
+        if failures == 0 {
+            print("RESULT: all checks passed")
+            return 0
+        }
+        print("RESULT: \(failures) check(s) FAILED")
+        return 1
+    }
+
+    // MARK: - Setup
+
+    private func contactSet() async -> [Contact] {
+        guard has("--real-contacts") else { return FixtureContacts.all }
+        let index = ContactIndex()
+        do {
+            try await index.load()
+            print("contacts: \(index.contacts.count) loaded from the address book")
+            return index.contacts
+        } catch {
+            print("contacts: address book unavailable (\(error)); falling back to fixtures")
+            return FixtureContacts.all
+        }
+    }
+
+    /// Builds the transcriber and pays its first-call cost up front so the
+    /// measured numbers reflect a warm engine, the way the shipped app behaves
+    /// once `TranscriberWarmup` has run.
+    private func warmEngine() async -> Transcriber {
+        let engine = TranscriberFactory.make()
+        let t0 = Date()
+        // 300 ms of silence: enough to force model load, short enough to be free.
+        let silence = [Float](repeating: 0, count: 4_800)
+        _ = try? await engine.transcribe(pcm: silence, hints: [])
+        let ms = Date().timeIntervalSince(t0) * 1000
+        print("engine: \(String(describing: type(of: engine))) warmed in \(fmt(ms)) ms")
+        return engine
+    }
+
+    // MARK: - One clip through the pipeline
+
+    struct InjectionOutcome {
+        var path: String
+        var label: String?
+        var samples: Int
+        var duration: Double
+        var peak: Float
+        var rms: Float
+        var decodeMs: Double = 0
+        var transcribeMs: Double = 0
+        var parseMs: Double = 0
+        var resolveMs: Double = 0
+        var linkMs: Double = 0
+        var transcript: String = ""
+        var recipientText: String?
+        var body: String?
+        var resolution: String = "—"
+        var resolvedName: String?
+        var resolvedPhone: String?
+        var deepLink: String?
+        var errors: [String] = []
+
+        var totalMs: Double { decodeMs + transcribeMs + parseMs + resolveMs + linkMs }
+    }
+
+    private func inject(path: String, contacts: [Contact], engine: Transcriber,
+                        label: String?) async -> InjectionOutcome {
+        let url = URL(fileURLWithPath: path)
+
+        let decodeStart = Date()
+        let pcm: [Float]
+        do {
+            pcm = try AudioFileLoader.loadPCM(url: url)
+        } catch {
+            var out = InjectionOutcome(path: path, label: label, samples: 0,
+                                       duration: 0, peak: 0, rms: 0)
+            out.errors.append("decode: \(error)")
+            return out
+        }
+        var out = InjectionOutcome(path: path, label: label,
+                                   samples: pcm.count,
+                                   duration: AudioFileLoader.duration(pcm),
+                                   peak: AudioFileLoader.peak(pcm),
+                                   rms: AudioFileLoader.rms(pcm))
+        out.decodeMs = Date().timeIntervalSince(decodeStart) * 1000
+
+        if out.samples == 0 {
+            out.errors.append("decode: file produced zero samples")
+            return out
+        }
+        if out.peak < 0.001 {
+            out.errors.append("audio: clip is silent (peak \(out.peak)); transcription cannot succeed")
+        }
+
+        // Stage: transcription, biased by contact names exactly as the app does.
+        let hints = contacts.flatMap { c in
+            [c.givenName, c.familyName, c.nickname, c.organizationName, c.displayName]
+                .filter { !$0.isEmpty }
+        }
+        let transcribeStart = Date()
+        do {
+            out.transcript = try await engine.transcribe(pcm: pcm, hints: hints)
+        } catch {
+            out.transcribeMs = Date().timeIntervalSince(transcribeStart) * 1000
+            out.errors.append("transcribe: \(error)")
+            return out
+        }
+        out.transcribeMs = Date().timeIntervalSince(transcribeStart) * 1000
+
+        if out.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            out.errors.append("transcribe: empty transcript from \(out.duration.rounded()) s of audio")
+            return out
+        }
+
+        // Stage: intent parse.
+        let parseStart = Date()
+        let parsed = IntentParser().parse(out.transcript)
+        out.parseMs = Date().timeIntervalSince(parseStart) * 1000
+
+        guard case .parsed(let intent) = parsed else {
+            if case .notParsed(let reason) = parsed {
+                out.errors.append("parse: notParsed(\(reason))")
+            }
+            return out
+        }
+        out.recipientText = intent.recipientText
+        out.body = intent.body
+
+        // Hard rule: the body is sliced from the transcript, never regenerated.
+        if !out.transcript.contains(intent.body) {
+            out.errors.append("FIDELITY VIOLATION: body is not a verbatim slice of the transcript")
+        }
+
+        // Stage: contact resolution.
+        let resolveStart = Date()
+        let resolution = ContactResolver().resolve(spoken: intent.recipientText,
+                                                   contacts: contacts,
+                                                   aliases: [:])
+        out.resolveMs = Date().timeIntervalSince(resolveStart) * 1000
+
+        switch resolution {
+        case .resolved(let contact):
+            out.resolution = "resolved"
+            out.resolvedName = contact.displayName
+            out.resolvedPhone = contact.preferredE164
+            if contact.preferredE164 == nil {
+                out.resolution = "resolved (no phone number)"
+            }
+        case .ambiguous(let candidates):
+            out.resolution = "ambiguous: " + candidates.map(\.displayName).joined(separator: ", ")
+        case .notFound:
+            out.resolution = "notFound"
+        }
+
+        // Stage: deep link. Dry run — built and inspected, never opened.
+        if let phone = out.resolvedPhone {
+            let linkStart = Date()
+            do {
+                let url = try WhatsAppDeepLink.sendURL(phone: phone, text: intent.body)
+                out.deepLink = url.absoluteString
+            } catch {
+                out.errors.append("deeplink: \(error)")
+            }
+            out.linkMs = Date().timeIntervalSince(linkStart) * 1000
+        }
+
+        return out
+    }
+
+    // MARK: - Reporting
+
+    private func report(_ results: [InjectionOutcome], contacts: [Contact]) -> Int {
+        var failures = 0
+        for out in results {
+            failures += printOutcome(out)
+        }
+
+        if results.count > 1 {
+            let ok = results.filter { $0.errors.isEmpty }
+            let times = ok.map(\.transcribeMs).sorted()
+            if !times.isEmpty {
+                let median = times[times.count / 2]
+                print("")
+                print("transcription over \(times.count) run(s): min \(fmt(times.first!)) ms  "
+                      + "median \(fmt(median)) ms  max \(fmt(times.last!)) ms  (budget 800 ms)")
+                if median > 800 { print("  OVER BUDGET by \(fmt(median - 800)) ms") }
+            }
+        }
+
+        failures += checkExpectations(results)
+        _ = contacts
+        return failures
+    }
+
+    private func printOutcome(_ out: InjectionOutcome) -> Int {
+        if quiet {
+            let verdict = out.errors.isEmpty ? "ok  " : "FAIL"
+            print("\(verdict) \(URL(fileURLWithPath: out.path).lastPathComponent)  "
+                  + "\(fmt(out.transcribeMs))ms  \"\(out.transcript)\"")
+            for e in out.errors { print("       \(e)") }
+            return out.errors.isEmpty ? 0 : 1
+        }
+
+        print("")
+        print("=== audio injection: \(URL(fileURLWithPath: out.path).lastPathComponent)"
+              + (out.label.map { " (\($0))" } ?? "") + " ===")
+        print("  audio       \(String(format: "%.2f", out.duration)) s, \(out.samples) samples @16kHz, "
+              + "peak \(String(format: "%.3f", out.peak)), rms \(String(format: "%.3f", out.rms))")
+        print("  decode      \(fmt(out.decodeMs)) ms")
+        print("  transcribe  \(fmt(out.transcribeMs)) ms   \"\(out.transcript)\"")
+        if let recipient = out.recipientText, let body = out.body {
+            print("  parse       \(fmt(out.parseMs)) ms   recipient=\"\(recipient)\" body=\"\(body)\"")
+            print("  resolve     \(fmt(out.resolveMs)) ms   \(out.resolution)"
+                  + (out.resolvedPhone.map { " +\($0)" } ?? ""))
+        }
+        if let link = out.deepLink {
+            print("  deeplink    \(fmt(out.linkMs)) ms   \(link)")
+            print("  send        DRY RUN — link built, not opened")
+        }
+        print("  total       \(fmt(out.totalMs)) ms")
+
+        if out.errors.isEmpty {
+            print("  verdict     PASS")
+            return 0
+        }
+        for e in out.errors { print("  ERROR       \(e)") }
+        print("  verdict     FAIL")
+        return 1
+    }
+
+    private func checkExpectations(_ results: [InjectionOutcome]) -> Int {
+        guard let first = results.first else { return 0 }
+        var failures = 0
+
+        func check(_ label: String, got: String?, want: String) {
+            guard let got else {
+                print("EXPECT FAIL \(label): got nothing, want \"\(want)\"")
+                failures += 1
+                return
+            }
+            let ok = strict ? got == want : loosely(got, equals: want)
+            if ok {
+                print("EXPECT PASS \(label): \"\(got)\"")
+            } else {
+                print("EXPECT FAIL \(label): got \"\(got)\", want \"\(want)\"")
+                failures += 1
+            }
+        }
+
+        if let want = value(for: "--expect-transcript") {
+            check("transcript", got: first.transcript, want: want)
+        }
+        if let want = value(for: "--expect-recipient") {
+            check("recipient", got: first.resolvedName ?? first.recipientText, want: want)
+        }
+        if let want = value(for: "--expect-body") {
+            check("body", got: first.body, want: want)
+        }
+        return failures
+    }
+
+    /// Loose comparison: case-insensitive, punctuation-insensitive, whitespace
+    /// collapsed. Speech recognizers capitalize and punctuate at their own
+    /// discretion, so an exact match would fail for reasons that are not bugs.
+    /// `--strict` opts into byte-exact comparison.
+    private func loosely(_ a: String, equals b: String) -> Bool {
+        func canon(_ s: String) -> String {
+            let stripped = s.unicodeScalars.filter { scalar in
+                CharacterSet.alphanumerics.contains(scalar) || scalar == " "
+            }
+            return String(String.UnicodeScalarView(stripped))
+                .lowercased()
+                .split(separator: " ", omittingEmptySubsequences: true)
+                .joined(separator: " ")
+        }
+        return canon(a) == canon(b)
+    }
+
+    // MARK: - Suite mode
+
+    /// Runs every clip in a tab-separated manifest:
+    ///   name <TAB> voice <TAB> spoken text <TAB> expect-recipient <TAB> expect-body
+    /// Lines starting with `#` and blank lines are ignored. Audio is expected at
+    /// `<manifest dir>/<name>.wav` (generate it with Tools/gen-test-audio.sh).
+    private func runSuite(manifestPath: String) async -> Int {
+        let manifestURL = URL(fileURLWithPath: manifestPath)
+        guard let text = try? String(contentsOf: manifestURL, encoding: .utf8) else {
+            print("suite: could not read manifest at \(manifestPath)")
+            return 1
+        }
+        let dir = manifestURL.deletingLastPathComponent()
+        let cases = AudioManifest.parse(text)
+        guard !cases.isEmpty else {
+            print("suite: manifest has no cases")
+            return 1
+        }
+
+        let contacts = await contactSet()
+        let engine = await warmEngine()
+
+        print("")
+        print("=== audio suite: \(cases.count) clip(s) ===")
+
+        var failures = 0
+        var transcribeTimes: [Double] = []
+
+        for testCase in cases {
+            let audioURL = dir.appendingPathComponent("\(testCase.name).wav")
+            guard FileManager.default.fileExists(atPath: audioURL.path) else {
+                print("FAIL \(testCase.name): audio missing at \(audioURL.path) — run Tools/gen-test-audio.sh")
+                failures += 1
+                continue
+            }
+            let out = await inject(path: audioURL.path, contacts: contacts, engine: engine, label: nil)
+            transcribeTimes.append(out.transcribeMs)
+
+            var caseFailures = out.errors
+            if !testCase.expectRecipient.isEmpty {
+                let got = out.resolvedName ?? out.recipientText ?? ""
+                if !loosely(got, equals: testCase.expectRecipient) {
+                    caseFailures.append("recipient: got \"\(got)\", want \"\(testCase.expectRecipient)\"")
+                }
+            }
+            if !testCase.expectBody.isEmpty {
+                let got = out.body ?? ""
+                if !loosely(got, equals: testCase.expectBody) {
+                    caseFailures.append("body: got \"\(got)\", want \"\(testCase.expectBody)\"")
+                }
+            }
+            if !testCase.expectResolution.isEmpty,
+               !out.resolution.lowercased().hasPrefix(testCase.expectResolution.lowercased()) {
+                caseFailures.append("resolution: got \"\(out.resolution)\", want \"\(testCase.expectResolution)\"")
+            }
+
+            if caseFailures.isEmpty {
+                print("PASS \(pad(testCase.name, 22)) \(pad(fmt(out.transcribeMs) + "ms", 9)) \"\(out.transcript)\"")
+            } else {
+                failures += 1
+                print("FAIL \(pad(testCase.name, 22)) \(pad(fmt(out.transcribeMs) + "ms", 9)) \"\(out.transcript)\"")
+                for f in caseFailures { print("       \(f)") }
+            }
+        }
+
+        let sorted = transcribeTimes.sorted()
+        if !sorted.isEmpty {
+            print("")
+            print("suite transcription: min \(fmt(sorted.first!)) ms  "
+                  + "median \(fmt(sorted[sorted.count / 2])) ms  max \(fmt(sorted.last!)) ms  (budget 800 ms)")
+        }
+        print("suite: \(cases.count - failures)/\(cases.count) passed")
+        return failures
+    }
+
+    // MARK: - Unit tests (no audio, no permissions)
+
+    private func runUnitTests() -> Int {
+        print("=== unit tests ===")
+        var failed = 0
+
+        let intent = runIntentTests()
+        print("intent parser: \(intent.passed) passed, \(intent.failed) failed")
+        failed += intent.failed
+
+        let contacts = runContactTests()
+        print("contacts:      \(contacts.passed) passed, \(contacts.failed) failed")
+        failed += contacts.failed
+
+        let send = runSendTests()
+        print("send:          \(send.passed) passed, \(send.failed) failed")
+        failed += send.failed
+
+        return failed
+    }
+
+    // MARK: - Latency probe
+
+    private func runLatencyProbe() async {
+        print("")
+        print("=== latency probe ===")
+
+        // Cold engine construction + first transcription, the number the user
+        // actually feels on the first utterance after launch.
+        let coldStart = Date()
+        let cold = TranscriberFactory.make()
+        let constructMs = Date().timeIntervalSince(coldStart) * 1000
+        let silence = [Float](repeating: 0, count: 16_000)
+        let firstStart = Date()
+        _ = try? await cold.transcribe(pcm: silence, hints: [])
+        let firstMs = Date().timeIntervalSince(firstStart) * 1000
+        let secondStart = Date()
+        _ = try? await cold.transcribe(pcm: silence, hints: [])
+        let secondMs = Date().timeIntervalSince(secondStart) * 1000
+
+        print("  construct engine        \(fmt(constructMs)) ms")
+        print("  first  transcribe (1 s) \(fmt(firstMs)) ms  <- paid once, at launch, if warmed")
+        print("  second transcribe (1 s) \(fmt(secondMs)) ms  <- what the user feels")
+        print("  warm-up saves           \(fmt(max(0, firstMs - secondMs))) ms on the first utterance")
+
+        // Microphone engine start, the 100 ms budget item. Needs mic permission;
+        // reports honestly when it is unavailable.
+        let recorder = MicrophoneRecorder()
+        do {
+            let micStart = Date()
+            try recorder.start()
+            let ms = Date().timeIntervalSince(micStart) * 1000
+            _ = recorder.stop()
+            print("  mic engine start        \(fmt(ms)) ms  (budget 100 ms)"
+                  + (ms > 100 ? "  OVER BUDGET" : ""))
+        } catch {
+            print("  mic engine start        unavailable: \(error)")
+        }
+    }
+
+    // MARK: - Formatting
+
+    private func fmt(_ ms: Double) -> String { String(format: "%.1f", ms) }
+
+    private func pad(_ s: String, _ width: Int) -> String {
+        s.count >= width ? s : s + String(repeating: " ", count: width - s.count)
+    }
+}
+
+// MARK: - Manifest
+
+/// Parser for the tab-separated audio manifest shared by the generator script
+/// and the suite runner.
+enum AudioManifest {
+    struct Case {
+        let name: String
+        let voice: String
+        let spoken: String
+        let expectRecipient: String
+        let expectBody: String
+        let expectResolution: String
+    }
+
+    static func parse(_ text: String) -> [Case] {
+        text.split(separator: "\n", omittingEmptySubsequences: false).compactMap { rawLine in
+            let line = String(rawLine)
+            guard !line.trimmingCharacters(in: .whitespaces).isEmpty,
+                  !line.hasPrefix("#") else { return nil }
+            let f = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+            guard f.count >= 3 else { return nil }
+            return Case(name: f[0].trimmingCharacters(in: .whitespaces),
+                        voice: f[1].trimmingCharacters(in: .whitespaces),
+                        spoken: f[2],
+                        expectRecipient: f.count > 3 ? f[3] : "",
+                        expectBody: f.count > 4 ? f[4] : "",
+                        expectResolution: f.count > 5 ? f[5].trimmingCharacters(in: .whitespaces) : "")
+        }
+    }
+}
