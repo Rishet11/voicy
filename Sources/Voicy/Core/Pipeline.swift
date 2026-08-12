@@ -295,11 +295,37 @@ final class Pipeline {
             print("[voicy] resolve: notFound")
         }
 
+        // Disfluency cleanup. Deletion only, and double-checked.
+        //
+        // `rulesOnly` drops standalone fillers ("um", "uh") and immediately
+        // repeated words. It is deterministic, so it can be reasoned about and
+        // tested, unlike a model. Even so its output is verified to be a
+        // deletion of the original before it is used: if anything at all was
+        // added, altered or reordered, the untouched body is kept instead.
+        //
+        // This is the one place the body legitimately differs from the raw
+        // transcript slice, and CLAUDE.md permits exactly this: "Removing filler
+        // is allowed; rewording is not." The user still sees the result on the
+        // confirm card and can edit it before anything is sent.
+        //
+        // `LLMCleaner` (FoundationModels) exists and works, but is deliberately
+        // NOT wired in here: it is free to add punctuation the user never spoke,
+        // which the deletion-only check tolerates by design since it compares
+        // bare words. Deterministic beats clever for the text of someone's
+        // message.
+        let cleanedBody = TranscriptCleaner.rulesOnly(intent.body)
+        let body = TranscriptCleaner.isDeletionOnly(original: intent.body, cleaned: cleanedBody)
+            ? cleanedBody
+            : intent.body
+        if body != intent.body {
+            print("[voicy] cleanup: removed \(intent.body.count - body.count) char(s) of disfluency")
+        }
+
         // The transcript is shown only when nothing matched, so the user can see
         // exactly what was heard. For resolved/ambiguous the editable message body
         // is what matters.
         let payload = VoicyConfirmPayload(recipients: recipients,
-                                          message: intent.body,
+                                          message: body,
                                           transcript: recipients.isEmpty ? transcript : nil)
 
         // The panel dismisses (clearing instance state) BEFORE firing onSend, so

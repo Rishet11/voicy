@@ -146,8 +146,9 @@ h1, h2, h3 {
 }
 
 h1 {
-  font-size: clamp(2.25rem, 5.2vw, 3.75rem);
+  font-size: clamp(1.85rem, 8vw, 3.75rem);
   letter-spacing: -0.03em;
+  overflow-wrap: anywhere;
 }
 
 h2 {
@@ -161,6 +162,7 @@ h3 {
 
 p {
   color: var(--text-secondary);
+  overflow-wrap: anywhere;
 }
 
 .lede {
@@ -171,6 +173,7 @@ p {
 code, .mono {
   font-family: var(--font-mono);
   font-size: 0.9em;
+  overflow-wrap: anywhere;
 }
 
 kbd {
@@ -182,6 +185,7 @@ kbd {
   border-radius: 6px;
   padding: 0.1em 0.5em;
   color: var(--text);
+  overflow-wrap: anywhere;
 }
 
 /* ---------- Skip link ---------- */
@@ -271,7 +275,8 @@ summary:focus-visible,
   align-items: center;
   justify-content: space-between;
   padding-block: var(--space-4);
-  gap: var(--space-4);
+  gap: var(--space-3);
+  flex-wrap: wrap;
 }
 
 .brand {
@@ -282,6 +287,7 @@ summary:focus-visible,
   font-size: 1.1rem;
   letter-spacing: -0.02em;
   color: var(--text);
+  min-width: 0;
 }
 
 .brand-mark {
@@ -321,6 +327,7 @@ summary:focus-visible,
   display: flex;
   align-items: center;
   gap: var(--space-3);
+  flex-shrink: 0;
 }
 
 .nav-cta .btn {
@@ -401,6 +408,7 @@ summary:focus-visible,
   align-items: center;
   gap: var(--space-3);
   margin-bottom: var(--space-4);
+  min-width: 0;
 }
 
 .confirm-avatar {
@@ -418,6 +426,10 @@ summary:focus-visible,
 .confirm-avatar svg {
   width: 20px;
   height: 20px;
+}
+
+.confirm-who {
+  min-width: 0;
 }
 
 .confirm-who .name {
@@ -525,6 +537,10 @@ summary:focus-visible,
 
 .problem-text p + p {
   margin-top: var(--space-4);
+}
+
+.problem-text {
+  min-width: 0;
 }
 
 .problem-text strong {
@@ -1042,7 +1058,15 @@ summary:focus-visible,
 /* ---------- Small-viewport hardening (360px baseline) ---------- */
 @media (max-width: 480px) {
   .wrap {
-    padding-inline: var(--space-4);
+    padding-inline: var(--space-3);
+  }
+  .nav-cta .btn {
+    padding: 0.5rem 0.8rem;
+    font-size: 0.85rem;
+    gap: 0.4rem;
+  }
+  .brand {
+    font-size: 1rem;
   }
   .hero {
     padding-block: var(--space-8) var(--space-6);
@@ -1059,6 +1083,13 @@ summary:focus-visible,
   }
   .confirm-actions {
     gap: var(--space-3);
+  }
+  .confirm-card {
+    padding: var(--space-4);
+  }
+  .diff-card,
+  .perm-card {
+    padding: var(--space-5);
   }
   .footer-inner {
     flex-direction: column;

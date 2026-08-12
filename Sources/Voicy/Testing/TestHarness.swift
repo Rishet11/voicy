@@ -541,6 +541,10 @@ struct TestHarness {
         print("send:          \(send.passed) passed, \(send.failed) failed")
         failed += send.failed
 
+        let cleanup = runCleanupTests()
+        print("cleanup:       \(cleanup.passed) passed, \(cleanup.failed) failed")
+        failed += cleanup.failed
+
         let sendPath = await runSendPathTests()
         print("send path:     \(sendPath.passed) passed, \(sendPath.failed) failed")
         failed += sendPath.failed
