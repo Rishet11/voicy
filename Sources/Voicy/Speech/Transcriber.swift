@@ -2,12 +2,101 @@ import AVFoundation
 import Foundation
 import Speech
 
+/// What an engine heard: its best guess, plus any competing hypotheses it was
+/// willing to offer for the same audio.
+///
+/// The alternatives matter because Apple's contextual-string biasing turned out
+/// to do nothing measurable on this engine (verified by running the audio
+/// harness with and without contact-name hints: the transcripts came back
+/// byte-identical). Names therefore come back mangled — "Pulkit" as "Polkit",
+/// "Aarav" as "our ab". When the recognizer offers a second hypothesis that
+/// contains a name we actually know, that is a far better signal than trying to
+/// repair the mangled text ourselves.
+/// One finalized chunk of a transcript, with whatever competing readings the
+/// engine offered for that chunk specifically.
+///
+/// The engine finalizes in segments, not all at once, and alternatives are
+/// scoped to the segment that produced them. Keeping that structure is what
+/// makes single-word recovery possible without inventing text.
+struct TranscriptionSegment: Sendable {
+    let best: String
+    let alternatives: [String]
+}
+
+struct TranscriptionResult: Sendable {
+    /// Finalized segments in order. Concatenating their `best` values
+    /// reconstructs the full transcript exactly.
+    let segments: [TranscriptionSegment]
+
+    init(segments: [TranscriptionSegment]) {
+        self.segments = segments
+    }
+
+    init(best: String, alternatives: [String] = []) {
+        self.segments = [TranscriptionSegment(best: best, alternatives: alternatives)]
+    }
+
+    /// The engine's primary reading of the whole utterance.
+    var best: String {
+        segments.map(\.best).joined()
+    }
+
+    /// Flat list of every alternative the engine offered, for diagnostics.
+    var alternatives: [String] {
+        segments.flatMap(\.alternatives)
+    }
+
+    /// Whole-utterance readings built by swapping exactly ONE segment for one of
+    /// its alternatives, primary first.
+    ///
+    /// Single substitution is the point. The failure being repaired is "one word
+    /// came out wrong" (the harness reproducibly hears "Aarav" as "our ab"), and
+    /// swapping one segment at a time stays linear in the number of alternatives
+    /// while covering that case exactly. Combining substitutions would grow
+    /// exponentially and would start assembling sentences the engine never
+    /// actually proposed.
+    ///
+    /// Every string returned here is a reading the RECOGNIZER produced. Nothing
+    /// is composed, corrected or reworded by us.
+    var hypotheses: [String] {
+        var seen = Set<String>()
+        var out: [String] = []
+
+        func add(_ candidate: String) {
+            let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, seen.insert(trimmed).inserted else { return }
+            out.append(candidate)
+        }
+
+        add(best)
+        for (index, segment) in segments.enumerated() {
+            for alternative in segment.alternatives {
+                var swapped = segments.map(\.best)
+                swapped[index] = alternative
+                add(swapped.joined())
+            }
+        }
+        return out
+    }
+}
+
 /// The transcription engine contract. Returned by `TranscriberFactory.make()`.
 /// The orchestrator swaps the engine behind this protocol.
 protocol Transcriber: Sendable {
     /// Transcribes 16 kHz mono Float32 PCM into a string, biased toward `hints`
     /// (expected words such as known contact names).
     func transcribe(pcm: [Float], hints: [String]) async throws -> String
+
+    /// Transcribes and also returns competing hypotheses when the engine has
+    /// them. Engines that cannot produce alternatives inherit the default, which
+    /// simply wraps `transcribe`, so no engine is forced to fake them.
+    func transcribeDetailed(pcm: [Float], hints: [String]) async throws -> TranscriptionResult
+}
+
+extension Transcriber {
+    func transcribeDetailed(pcm: [Float], hints: [String]) async throws -> TranscriptionResult {
+        TranscriptionResult(best: try await transcribe(pcm: pcm, hints: hints))
+    }
 }
 
 /// Builds the best transcription engine available on the running OS.
@@ -72,6 +161,29 @@ final class SpeechAnalyzerTranscriber: Transcriber {
     }
 
     func transcribe(pcm: [Float], hints: [String]) async throws -> String {
+        try await transcribeDetailed(pcm: pcm, hints: hints).best
+    }
+
+    func transcribeDetailed(pcm: [Float], hints: [String]) async throws -> TranscriptionResult {
+        // MEASURED, do not "improve" this back to `.transcriptionWithAlternatives`.
+        //
+        // Asking for alternatives was tried as a way to recover mangled contact
+        // names, since contextual-string biasing measurably does nothing on this
+        // engine. Both halves of that idea failed on real audio:
+        //
+        //   Accuracy: the alternatives are near-duplicates of the primary. For a
+        //   clip where "Aarav" was heard as "our ab", the five alternatives were
+        //   "our Av", "our av", "our Ab", "our ad" — no reading contained a real
+        //   contact name. Most alternatives differ only in capitalization.
+        //
+        //   Cost: median transcription over the 22-clip suite went from 139 ms to
+        //   277 ms, and the longest clip went from 321 ms to 829 ms, which breaks
+        //   the 800 ms end-of-speech budget outright.
+        //
+        // Doubling latency for no accuracy gain is a bad trade, so the plain
+        // preset stays. Mangled names are handled where they can actually be
+        // fixed: fuzzy/phonetic contact matching, and alias learning, which makes
+        // a name the user corrects once resolve instantly forever after.
         let module = SpeechTranscriber(locale: locale, preset: .transcription)
         let analyzer = SpeechAnalyzer(modules: [module])
 
@@ -93,14 +205,20 @@ final class SpeechAnalyzerTranscriber: Transcriber {
         }
 
         // Collect results as the analyzer runs, then feed and finalize.
-        let collector = Task { () -> String in
-            var text = ""
-            for try await result in module.results {
-                if result.isFinal {
-                    text = String(result.text.characters)
-                }
+        let collector = Task { () -> TranscriptionResult in
+            // ACCUMULATE. The analyzer finalizes in segments, so a long sentence
+            // arrives as several `isFinal` results. Overwriting on each one (the
+            // previous behaviour) silently truncated the transcript to its last
+            // segment — the harness caught it turning a full sentence into
+            // " ab.". Appending is correct for both one-shot and segmented runs.
+            var segments: [TranscriptionSegment] = []
+            for try await result in module.results where result.isFinal {
+                segments.append(TranscriptionSegment(
+                    best: String(result.text.characters),
+                    alternatives: result.alternatives.map { String($0.characters) }
+                ))
             }
-            return text
+            return TranscriptionResult(segments: segments)
         }
 
         let input = AnalyzerInput(buffer: buffer)

@@ -158,6 +158,7 @@ struct TestHarness {
         var resolveMs: Double = 0
         var linkMs: Double = 0
         var transcript: String = ""
+        var alternatives: [String] = []
         var recipientText: String?
         var body: String?
         var resolution: String = "—"
@@ -208,7 +209,9 @@ struct TestHarness {
         }
         let transcribeStart = Date()
         do {
-            out.transcript = try await engine.transcribe(pcm: pcm, hints: hints)
+            let result = try await engine.transcribeDetailed(pcm: pcm, hints: hints)
+            out.transcript = result.best
+            out.alternatives = result.hypotheses.dropFirst().map { $0 }
         } catch {
             out.transcribeMs = Date().timeIntervalSince(transcribeStart) * 1000
             out.errors.append("transcribe: \(error)")
@@ -317,6 +320,13 @@ struct TestHarness {
               + "peak \(String(format: "%.3f", out.peak)), rms \(String(format: "%.3f", out.rms))")
         print("  decode      \(fmt(out.decodeMs)) ms")
         print("  transcribe  \(fmt(out.transcribeMs)) ms   \"\(out.transcript)\"")
+        if out.alternatives.isEmpty {
+            print("  alternates  none offered by the engine")
+        } else {
+            for (i, alt) in out.alternatives.enumerated() {
+                print("  alternate \(i + 1)              \"\(alt)\"")
+            }
+        }
         if let recipient = out.recipientText, let body = out.body {
             print("  parse       \(fmt(out.parseMs)) ms   recipient=\"\(recipient)\" body=\"\(body)\"")
             print("  resolve     \(fmt(out.resolveMs)) ms   \(out.resolution)"
