@@ -106,8 +106,28 @@ public struct IntentParser: Sendable {
         }
 
         let verb = first.word.lowercased()
-        guard Self.verbs.contains(verb) else {
-            return .notParsed(reason: "no command verb found")
+        let hasVerb = Self.verbs.contains(verb)
+
+        // Recognizers drop the leading command verb often enough that requiring
+        // it loses real utterances. Measured with the audio harness: "Tell
+        // Siddharth that the file is ready" came back as "Siddharth, that the
+        // file is ready." — the verb simply vanished, and the whole intent was
+        // rejected even though the meaning is unambiguous.
+        //
+        // So a verb-less utterance is accepted ONLY in the shape that actually
+        // occurs: a leading name terminated by punctuation, or followed by a
+        // connector ("that" / "saying" / "ki"). That is narrow on purpose. Plain
+        // speech that happens to be picked up ("what is the weather in Bangalore
+        // today") has neither, so it is still rejected rather than turned into a
+        // message to somebody called "What".
+        //
+        // This is safe to be permissive about because the recipient still has to
+        // survive contact resolution, and an unmatched name shows the "nobody
+        // found" card instead of sending anything.
+        if !hasVerb {
+            guard startsWithNameLikeAddress(tokens) else {
+                return .notParsed(reason: "no command verb found")
+            }
         }
 
         let app: MessagingApp
@@ -117,7 +137,8 @@ public struct IntentParser: Sendable {
         default: app = .whatsapp   // "message", "tell", "send", "text", "whatsapp"
         }
 
-        let rest = Array(tokens.dropFirst())
+        // With no verb the first token IS the recipient, so nothing is dropped.
+        let rest = hasVerb ? Array(tokens.dropFirst()) : tokens
         guard !rest.isEmpty else {
             return .notParsed(reason: "no recipient or body")
         }
@@ -180,6 +201,34 @@ public struct IntentParser: Sendable {
         let body = String(working[bodyStart..<working.endIndex])
 
         return .parsed(ParsedIntent(recipientText: name, body: body, app: app))
+    }
+
+    /// True when a verb-less utterance still looks like it is addressing someone:
+    /// one or two leading non-boundary words, terminated either by punctuation
+    /// the recognizer inserted for the natural pause after a name, or by an
+    /// explicit connector.
+    ///
+    /// Requires a body to follow, so a bare "Siddharth" is not an intent.
+    private func startsWithNameLikeAddress(_ tokens: [Token]) -> Bool {
+        guard tokens.count >= 2 else { return false }
+
+        var nameCount = 0
+        while nameCount < tokens.count, nameCount < 2 {
+            let word = tokens[nameCount].word.lowercased()
+            if Self.nameBoundaries.contains(word) { break }
+            nameCount += 1
+            // Punctuation after the name is the strongest signal: "Siddharth,".
+            if let ch = tokens[nameCount - 1].word.last, ",.;:!?".contains(ch) {
+                return nameCount < tokens.count
+            }
+        }
+        guard nameCount > 0, nameCount < tokens.count else { return false }
+
+        // Otherwise an explicit connector must follow the name, and something
+        // must follow that connector to serve as the body.
+        let next = tokens[nameCount].word.lowercased()
+            .trimmingCharacters(in: CharacterSet(charactersIn: ",.;:!?"))
+        return Self.connectors.contains(next) && nameCount + 1 < tokens.count
     }
 
     // MARK: - "to <Name>" recipient phrase (verb-last / name-last shape)

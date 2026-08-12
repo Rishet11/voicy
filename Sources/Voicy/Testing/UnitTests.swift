@@ -139,6 +139,39 @@ func runContactTests() -> (passed: Int, failed: Int) {
     default: t.check(false, "no contacts must be notFound")
     }
 
+    // A two-letter fragment carries no signal. The harness transcribed
+    // "Say hi to Aarav" as "Say hi to our ab.", the parser took "hi" as the
+    // name, and "hi" fuzzy-matched SEVEN unrelated contacts.
+    switch resolver.resolve(spoken: "hi", contacts: contacts, aliases: [:]) {
+    case .notFound:
+        t.check(true, "two-letter fragment matches nobody")
+    case .resolved(let c):
+        t.check(false, "\"hi\" must not resolve", "resolved to \(c.displayName)")
+    case .ambiguous(let cs):
+        t.check(false, "\"hi\" must not be ambiguous", "\(cs.count) candidates")
+    }
+
+    // ...but an exact match on a genuinely short name still works.
+    let shortName = [Contact(identifier: "short", givenName: "Jo", familyName: "",
+                             nickname: "", organizationName: "",
+                             phones: [ContactPhone(label: "mobile", e164: "919812345699")])]
+    switch resolver.resolve(spoken: "Jo", contacts: shortName, aliases: [:]) {
+    case .resolved(let c):
+        t.equal(c.identifier, "short", "exact short name still resolves")
+    default:
+        t.check(false, "an exact match on \"Jo\" must resolve")
+    }
+
+    // A first name outranks somebody else's surname. "Polka" (misheard "Pulkit")
+    // was previously close enough to "Kapoor" to drag Stone Kapoor in as a
+    // candidate.
+    let ranked = FuzzyMatcher().rank(query: "Polka", among: contacts)
+    if let top = ranked.first {
+        t.equal(top.contact.identifier, "fixture-pulkit", "misheard first name ranks first")
+    } else {
+        t.check(false, "\"Polka\" should rank at least one candidate")
+    }
+
     // A phone-less contact still resolves; the SEND path is what must refuse.
     switch resolver.resolve(spoken: "Meera Krishnan", contacts: contacts, aliases: [:]) {
     case .resolved(let c):

@@ -21,6 +21,43 @@ enum TranscriberFactory {
     }
 }
 
+/// Pays the on-device model load cost once, at launch, instead of on the user's
+/// first sentence.
+///
+/// Measured on this machine with the audio-injection harness
+/// (`--test-latency`, `--test-audio`): the FIRST `transcribe` call after process
+/// start costs ~920 ms, and every call after it costs ~130-210 ms for the same
+/// clip. The cost is process-global model loading, not per-instance setup, so a
+/// single throwaway call at startup moves the whole 920 ms off the critical
+/// path. That is the difference between blowing the 800 ms end-of-speech budget
+/// on the first utterance and landing inside it every time.
+///
+/// Deliberately fire-and-forget: warm-up must never delay app launch, and a
+/// failure here is harmless because the next real call just pays the cost the
+/// old way.
+enum TranscriberWarmup {
+
+    /// Half a second of silence: long enough to force the model to load, short
+    /// enough to be effectively free, and it transcribes to nothing so no state
+    /// is polluted.
+    private static let silenceSampleCount = 8_000
+
+    static func warm(_ engine: Transcriber) async {
+        let t0 = Date()
+        let silence = [Float](repeating: 0, count: silenceSampleCount)
+        do {
+            _ = try await engine.transcribe(pcm: silence, hints: [])
+            let ms = Date().timeIntervalSince(t0) * 1000
+            print("[voicy] engine: warmed in \(String(format: "%.1f", ms)) ms "
+                  + "(this cost is now OFF the first utterance)")
+        } catch {
+            // Non-fatal by design. The first real utterance will simply pay the
+            // load cost itself, exactly as it did before warm-up existed.
+            print("[voicy] engine: warm-up skipped (\(error))")
+        }
+    }
+}
+
 /// Primary engine: the new macOS 26 Speech framework
 /// (`SpeechAnalyzer` + `SpeechTranscriber`).
 ///

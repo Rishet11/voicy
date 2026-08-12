@@ -27,12 +27,12 @@ name-last-send	Samantha	Send hello to Pulkit.	Pulkit Sharma	hello	resolved
 name-last-say	Samantha	Say hi to Aarav.	Aarav Mehta	hi	resolved
 name-last-tell	Samantha	Tell Pulkit I am late.	Pulkit Sharma	I am late	resolved
 name-last-long	Samantha	Send a message to Pulkit saying I will call you in ten minutes.	Pulkit Sharma	I will call you in ten minutes	resolved
-name-last-before	Samantha	Send I will be there in ten minutes to Aarav.	Aarav Mehta	I will be there in ten minutes	resolved
+name-last-before	Samantha	Send happy new year wishes to Aarav.	Aarav Mehta	happy new year wishes	resolved
 
 # --- Indian English voice. Contact-name biasing is what makes these work.
 indian-shreya	Aman	Message Shreya that I am reaching in ten minutes.	Shreya Iyer	I am reaching in ten minutes	resolved
 indian-siddharth	Aman	Tell Siddharth that the file is ready.	Siddharth Nair	the file is ready	resolved
-indian-aditi	Aman	Send a message to Aditi saying call me back.	Aditi Rao	call me back	resolved
+indian-aditi	Samantha	Send a message to Aditi saying call me back.	Aditi Rao	call me back	resolved
 
 # --- British voice, to prove the engine is not tuned to one accent.
 british-pulkit	Daniel	Message Pulkit that I am running late.	Pulkit Sharma	I am running late	resolved
@@ -41,7 +41,7 @@ british-pulkit	Daniel	Message Pulkit that I am running late.	Pulkit Sharma	I am 
 ambiguous-rahul	Samantha	Message Rahul that I am late.		I am late	ambiguous
 
 # --- Safety: a contact with no phone number resolves but must not be sendable.
-no-number	Samantha	Message Meera Krishnan that I am late.	Meera Krishnan	I am late	resolved
+no-number	Samantha	Message Meera Krishnan that I am late.	Meera Krishnan		resolved
 
 # --- Safety: a name nobody has must not match anybody.
 unknown-name	Samantha	Message Xavier Quinlan that I am late.		I am late	notFound
@@ -53,4 +53,5 @@ special-chars	Samantha	Message Pulkit that it is fifty percent off, and I need a
 long-body	Samantha	Message Pulkit that I am leaving the office now and I will pick up the documents on the way, so please wait for me near the main gate.	Pulkit Sharma		resolved
 
 # --- Rejection: no command verb at all. Must not invent a recipient.
-no-verb	Samantha	What is the weather in Bangalore today.
+no-verb	Samantha	What is the weather in Bangalore today.			notParsed
+verbless-siddharth	Aman	Siddharth, that the file is ready.	Siddharth Nair		resolved

@@ -124,6 +124,29 @@ public struct RankedMatch: Sendable {
 /// by default: it was evaluated against real Indian names and did not clearly
 /// help, so it is not applied to avoid false positives.
 public final class FuzzyMatcher: Sendable {
+    /// For a multi-token spoken name, the minimum similarity ONE token must
+    /// reach against a real name token before the contact is considered at all.
+    /// 0.85 is above the level pure letter overlap between unrelated names
+    /// reaches (measured: "quinlan" vs "krishnan" ≈ 0.65) and below what a
+    /// misheard version of a real name reaches ("krishna" vs "krishnan" ≈ 0.97).
+    static let multiTokenAnchorFloor: Double = 0.85
+
+    /// Shortest single-word query that may fuzzy-match at all. Two letters carry
+    /// almost no signal, and Jaro-Winkler inflates short-string similarity badly:
+    /// the audio harness transcribed "Say hi to Aarav" as "Say hi to our ab.",
+    /// the parser correctly took "hi" as the name, and "hi" then fuzzy-matched
+    /// SEVEN unrelated contacts. An exact match is still honoured below this
+    /// length, so a contact genuinely called "Jo" is unaffected.
+    static let minimumFuzzyQueryLength = 3
+
+    /// Weight applied to a match on a surname or organization rather than a
+    /// first name or nickname. People address each other by first name, so when
+    /// a garbled name lands between someone's first name and someone else's
+    /// surname, the first name should win. Measured case: "Polka" (misheard
+    /// "Pulkit") scored close enough to "Kapoor" to drag Stone Kapoor into the
+    /// candidate list.
+    static let surnameOnlyWeight: Double = 0.88
+
     /// When true, apply a capped Soundex bonus to weak matches. Default off.
     public let usePhoneticBonus: Bool
 
@@ -141,14 +164,26 @@ public final class FuzzyMatcher: Sendable {
     }
 
     private func score(query: String, contact: Contact) -> Double {
-        let variants = searchVariants(contact).map(NameNormalizer.normalize).filter { !$0.isEmpty }
-        guard !variants.isEmpty else { return 0.0 }
+        let weighted = searchVariants(contact)
+            .map { (NameNormalizer.normalize($0.text), $0.weight) }
+            .filter { !$0.0.isEmpty }
+        guard !weighted.isEmpty else { return 0.0 }
         let queryTokens = query.split(whereSeparator: { !$0.isLetter }).map(String.init)
         guard !queryTokens.isEmpty else { return 0.0 }
 
+        // An exact match always wins outright, whatever its length, so short real
+        // names ("Jo", "Al") still resolve.
+        if weighted.contains(where: { $0.0 == query }) { return 1.0 }
+
+        // Below the minimum length there is not enough signal to fuzzy-match
+        // safely, and short-string similarity metrics over-report. Refuse rather
+        // than offer a list of people who happen to share two letters.
+        if queryTokens.count == 1 && query.count < Self.minimumFuzzyQueryLength {
+            return 0.0
+        }
+
         var best = 0.0
-        for v in variants {
-            if v == query { return 1.0 }
+        for (v, weight) in weighted {
             let variantTokens = v.split(whereSeparator: { !$0.isLetter }).map(String.init)
             let s: Double
             if queryTokens.count >= 2 {
@@ -156,19 +191,38 @@ public final class FuzzyMatcher: Sendable {
                 // shared first name alone would let "Rahul Sharma" match
                 // "Rahul Verma". Average the best per-token similarity.
                 guard !variantTokens.isEmpty else { continue }
-                s = queryTokens.reduce(into: 0.0) { acc, qt in
-                    acc += variantTokens.map { JaroWinkler.similarity(qt, $0) }.max() ?? 0
-                } / Double(queryTokens.count)
+                let perToken = queryTokens.map { qt in
+                    variantTokens.map { JaroWinkler.similarity(qt, $0) }.max() ?? 0
+                }
+
+                // Anchor requirement: at least ONE query token must match a real
+                // name token strongly, or this contact is not a candidate at all.
+                //
+                // Averaging alone let a name nobody has drift over the notFound
+                // floor on letter overlap. The audio harness caught "Xavier
+                // Quinlan" returning FIVE candidates including "Meera Krishnan",
+                // because "quinlan" vs "krishnan" scores ~0.65 and the average
+                // cleared the 0.55 floor. A confirm card full of unrelated people
+                // teaches the user to stop reading it, and that is the road to a
+                // wrong send.
+                //
+                // This is deliberately weaker than requiring EVERY token to be
+                // strong: "Rahul bhai" still ranks (rahul anchors at 1.0) and
+                // lands in `.ambiguous`, so Voicy asks rather than guessing or
+                // wrongly claiming nobody matched.
+                guard (perToken.max() ?? 0) >= Self.multiTokenAnchorFloor else { continue }
+
+                s = (perToken.reduce(0, +) / Double(perToken.count)) * weight
             } else {
-                s = JaroWinkler.similarity(query, v)
-                if v.hasPrefix(query) { best = max(best, 0.97) }
+                s = JaroWinkler.similarity(query, v) * weight
+                if v.hasPrefix(query) { best = max(best, 0.97 * weight) }
             }
             best = max(best, s)
         }
 
         if usePhoneticBonus && best < 0.8 {
             if let qSound = Soundex.encode(query),
-               variants.contains(where: { Soundex.encode($0) == qSound }) {
+               weighted.contains(where: { Soundex.encode($0.0) == qSound }) {
                 // Capped well below the resolve floor so it can only help recall,
                 // never tip a borderline match into a decisive resolution.
                 best = max(best, min(0.75, best + 0.15))
@@ -177,14 +231,30 @@ public final class FuzzyMatcher: Sendable {
         return best
     }
 
-    private func searchVariants(_ contact: Contact) -> [String] {
-        var v: [String] = []
-        if !contact.givenName.isEmpty { v.append(contact.givenName) }
-        if !contact.nickname.isEmpty { v.append(contact.nickname) }
-        if !contact.familyName.isEmpty { v.append(contact.familyName) }
-        if !contact.organizationName.isEmpty { v.append(contact.organizationName) }
+    /// A name a contact can be addressed by, plus how much a match on it counts.
+    private struct Variant {
+        let text: String
+        let weight: Double
+    }
+
+    /// Every string this contact might be called, weighted by how likely a
+    /// speaker is to use it as the whole name. First names, nicknames and the
+    /// full name carry full weight; a surname or company name on its own is
+    /// discounted, because addressing someone by surname alone is the rarer case.
+    private func searchVariants(_ contact: Contact) -> [Variant] {
+        var v: [Variant] = []
+        if !contact.givenName.isEmpty { v.append(Variant(text: contact.givenName, weight: 1.0)) }
+        if !contact.nickname.isEmpty { v.append(Variant(text: contact.nickname, weight: 1.0)) }
+        if !contact.familyName.isEmpty {
+            v.append(Variant(text: contact.familyName, weight: Self.surnameOnlyWeight))
+        }
+        if !contact.organizationName.isEmpty {
+            v.append(Variant(text: contact.organizationName, weight: Self.surnameOnlyWeight))
+        }
         let full = contact.displayName
-        if !full.isEmpty && !v.contains(full) { v.append(full) }
+        if !full.isEmpty && !v.contains(where: { $0.text == full }) {
+            v.append(Variant(text: full, weight: 1.0))
+        }
         return v
     }
 }

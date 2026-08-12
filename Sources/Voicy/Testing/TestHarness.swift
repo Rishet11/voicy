@@ -199,7 +199,10 @@ struct TestHarness {
         }
 
         // Stage: transcription, biased by contact names exactly as the app does.
-        let hints = contacts.flatMap { c in
+        // `--no-hints` drops the bias so the two runs can be compared directly:
+        // if the transcripts are identical, the biasing is a no-op and the
+        // accuracy feature does not actually exist.
+        let hints = has("--no-hints") ? [] : contacts.flatMap { c in
             [c.givenName, c.familyName, c.nickname, c.organizationName, c.displayName]
                 .filter { !$0.isEmpty }
         }
@@ -370,16 +373,28 @@ struct TestHarness {
     /// discretion, so an exact match would fail for reasons that are not bugs.
     /// `--strict` opts into byte-exact comparison.
     private func loosely(_ a: String, equals b: String) -> Bool {
-        func canon(_ s: String) -> String {
-            let stripped = s.unicodeScalars.filter { scalar in
-                CharacterSet.alphanumerics.contains(scalar) || scalar == " "
-            }
-            return String(String.UnicodeScalarView(stripped))
-                .lowercased()
-                .split(separator: " ", omittingEmptySubsequences: true)
-                .joined(separator: " ")
+        canon(a) == canon(b)
+    }
+
+    /// Number words and digits are treated as equal: a recognizer writing "10"
+    /// for spoken "ten" is a formatting choice, not a transcription error, and
+    /// asserting on it would make the suite fail for a non-bug.
+    private static let numberWords: [String: String] = [
+        "zero": "0", "one": "1", "two": "2", "three": "3", "four": "4",
+        "five": "5", "six": "6", "seven": "7", "eight": "8", "nine": "9",
+        "ten": "10", "eleven": "11", "twelve": "12", "twenty": "20",
+        "thirty": "30", "forty": "40", "fifty": "50", "hundred": "100",
+    ]
+
+    private func canon(_ s: String) -> String {
+        let stripped = s.unicodeScalars.filter { scalar in
+            CharacterSet.alphanumerics.contains(scalar) || scalar == " "
         }
-        return canon(a) == canon(b)
+        return String(String.UnicodeScalarView(stripped))
+            .lowercased()
+            .split(separator: " ", omittingEmptySubsequences: true)
+            .map { Self.numberWords[String($0)] ?? String($0) }
+            .joined(separator: " ")
     }
 
     // MARK: - Suite mode
@@ -421,6 +436,28 @@ struct TestHarness {
             transcribeTimes.append(out.transcribeMs)
 
             var caseFailures = out.errors
+
+            // A case can expect REJECTION. "notParsed" means the utterance must
+            // not become a message at all, so a parse failure is the pass
+            // condition and its absence is the failure.
+            if testCase.expectResolution.lowercased() == "notparsed" {
+                let rejected = out.errors.contains { $0.hasPrefix("parse: notParsed") }
+                caseFailures = out.errors.filter { !$0.hasPrefix("parse: notParsed") }
+                if !rejected {
+                    caseFailures.append("expected the utterance to be REJECTED, "
+                                        + "but it parsed as recipient=\"\(out.recipientText ?? "")\"")
+                }
+                if caseFailures.isEmpty {
+                    print("PASS \(pad(testCase.name, 22)) \(pad(fmt(out.transcribeMs) + "ms", 9)) "
+                          + "rejected (correct)  \"\(out.transcript)\"")
+                } else {
+                    failures += 1
+                    print("FAIL \(pad(testCase.name, 22)) \(pad(fmt(out.transcribeMs) + "ms", 9)) \"\(out.transcript)\"")
+                    for f in caseFailures { print("       \(f)") }
+                }
+                continue
+            }
+
             if !testCase.expectRecipient.isEmpty {
                 let got = out.resolvedName ?? out.recipientText ?? ""
                 if !loosely(got, equals: testCase.expectRecipient) {

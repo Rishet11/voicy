@@ -151,9 +151,38 @@ public func runIntentTests() -> (passed: Int, failed: Int) {
            recipient: "Rahul Sharma", body: "hello", app: .whatsapp,
            "name-last: multi-word name in 'to' form")
 
+    // MARK: Verb dropped by the recognizer (measured, not hypothetical)
+    //
+    // The audio harness transcribed "Tell Siddharth that the file is ready" as
+    // "Siddharth, that the file is ready." — the verb vanished. Accepting that
+    // shape recovers the utterance; the cases below pin down exactly how far
+    // that permissiveness goes.
+
+    expect("Siddharth, that the file is ready.",
+           recipient: "Siddharth", body: "the file is ready.", app: .whatsapp,
+           "verb-less: name + comma + connector")
+
+    expect("Pulkit, I am late",
+           recipient: "Pulkit", body: "I am late", app: .whatsapp,
+           "verb-less: name + comma + body")
+
+    expect("Pulkit that I am late",
+           recipient: "Pulkit", body: "I am late", app: .whatsapp,
+           "verb-less: name + connector, no punctuation")
+
+    expect("Rahul Sharma, I am late",
+           recipient: "Rahul Sharma", body: "I am late", app: .whatsapp,
+           "verb-less: two-word name + comma")
+
     // MARK: Rejections
 
     expectNotParsed("what is the weather", "no command verb")
+    expectNotParsed("what is the weather in Bangalore today?",
+                    "verb-less plain speech is not an address")
+    expectNotParsed("I am running late", "verb-less sentence starting with a pronoun")
+    expectNotParsed("Pulkit", "a bare name is not a message")
+    expectNotParsed("Pulkit,", "a bare name with punctuation is not a message")
+    expectNotParsed("hello there everyone", "no verb, no connector, no punctuation")
     expectNotParsed("message", "verb only, no recipient or body")
     expectNotParsed("", "empty transcript")
 

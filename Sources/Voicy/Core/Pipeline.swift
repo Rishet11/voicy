@@ -139,6 +139,16 @@ final class Pipeline {
         Task { @MainActor [weak self] in
             await self?.requestTier1Permissions()
         }
+
+        // Load the on-device speech model NOW, not on the user's first sentence.
+        // Measured with the audio-injection harness: the first transcribe call
+        // in a process costs ~920 ms and every later call ~160 ms. Warming here
+        // is what keeps the first utterance inside the 800 ms budget.
+        // Detached from the permission task so neither can delay the other.
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await TranscriberWarmup.warm(self.transcriber)
+        }
     }
 
     // MARK: - Hotkeys (progressive permission)
@@ -214,7 +224,12 @@ final class Pipeline {
             do {
                 let text = try await self.transcriber.transcribe(pcm: pcm, hints: hints)
                 let ms = Date().timeIntervalSince(transcribeStart) * 1000
-                print("[voicy] transcription: \(String(format: "%.1f", ms)) ms — \"\(text)\"")
+                // NEVER log the transcript. It is the user's message content, and
+                // when Voicy runs as a bundle its stdout is routinely redirected to
+                // a file, which would put private messages on disk. Length only.
+                // To inspect real transcripts, use the audio-injection harness
+                // (`--test-audio`), which runs on synthetic audio by design.
+                print("[voicy] transcription: \(String(format: "%.1f", ms)) ms, \(text.count) chars")
                 self.present(transcript: text, transcribeStart: transcribeStart)
             } catch {
                 print("[voicy] ERROR: transcription failed: \(error)")
@@ -237,7 +252,10 @@ final class Pipeline {
                 onDismiss: {}
             )
         case .parsed(let intent):
-            print("[voicy] intent: parsed recipient=\"\(intent.recipientText)\" app=\(appName(intent.app))")
+            // Recipient name is operational metadata and stays; the body never
+            // appears in a log, only its length.
+            print("[voicy] intent: parsed recipient=\"\(intent.recipientText)\" "
+                  + "body=\(intent.body.count) chars app=\(appName(intent.app))")
             let resolveStart = Date()
             let resolution = resolver.resolve(spoken: intent.recipientText,
                                               contacts: contactIndex.contacts,
@@ -256,7 +274,9 @@ final class Pipeline {
         case .resolved(let contact):
             recipients = [toRecipient(contact, app: intent.app)]
             if let p = contact.preferredE164 {
-                print("[voicy] resolve: resolved -> \(contact.displayName) +\(p)")
+                // Last 4 digits only. A full phone number in a log file is PII we
+                // have no reason to write down.
+                print("[voicy] resolve: resolved -> \(contact.displayName) +…\(p.suffix(4))")
             } else {
                 print("[voicy] resolve: resolved (no number) -> \(contact.displayName)")
             }
