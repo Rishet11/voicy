@@ -1,0 +1,301 @@
+import AppKit
+import ApplicationServices
+import AVFoundation
+import Contacts
+import CoreGraphics
+import Observation
+import Speech
+import SwiftUI
+
+// MARK: - Settings (progressive permissions)
+//
+// Implements the binding permission model (CLAUDE.md): Tier-1 permissions are
+// required at launch; Tier-2 are OPTIONAL upgrades the user opts into here. Each
+// Tier-2 toggle states plainly what it unlocks, which macOS permission it needs,
+// and offers a button that opens the exact System Settings pane.
+
+/// The System Settings Privacy panes each permission maps to. Voicy never tries
+/// to grant these programmatically (macOS forbids it); it only opens the right
+/// pane and lets the user decide.
+enum SystemSettingsPane {
+    static let base = "x-apple.systempreferences:com.apple.preference.security?Privacy_"
+
+    static let microphone = makeURL("Microphone")
+    static let contacts = makeURL("Contacts")
+    static let listenEvent = makeURL("ListenEvent")
+    static let accessibility = makeURL("Accessibility")
+
+    private static func makeURL(_ pane: String) -> URL {
+        URL(string: base + pane)!
+    }
+}
+
+/// UI-facing model for the Settings window. Owns the persisted Tier-2 feature
+/// toggles and reads live permission state from the macOS APIs whenever the
+/// window appears. Lives entirely inside UI/ so it never reaches into other
+/// workers' directories.
+@MainActor
+@Observable
+final class SettingsModel {
+
+    // MARK: Tier-2 feature toggles (persisted in UserDefaults)
+
+    /// "Hold a key to talk" -> grants Input Monitoring (Right-Option push-to-talk).
+    /// When off, Voicy uses the Carbon hotkey (Ctrl+Space) which needs no permission.
+    var holdToTalk: Bool {
+        didSet { UserDefaults.standard.set(holdToTalk, forKey: Self.tier2Key("holdToTalk")) }
+    }
+
+    /// "Send without pressing Enter" -> grants Accessibility (synthetic Return).
+    /// When off, WhatsApp opens pre-filled and the user presses Enter themselves.
+    var sendWithoutEnter: Bool {
+        didSet { UserDefaults.standard.set(sendWithoutEnter, forKey: Self.tier2Key("sendWithoutEnter")) }
+    }
+
+    /// Bumped on every refresh so the view re-reads the live permission APIs.
+    private(set) var refreshVersion = 0
+
+    private static func tier2Key(_ suffix: String) -> String { "voicy.tier2.\(suffix)" }
+
+    init() {
+        let d = UserDefaults.standard
+        holdToTalk = d.bool(forKey: Self.tier2Key("holdToTalk"))
+        sendWithoutEnter = d.bool(forKey: Self.tier2Key("sendWithoutEnter"))
+    }
+
+    // MARK: Live permission state
+
+    var microphoneGranted: Bool { AVCaptureDevice.authorizationStatus(for: .audio) == .authorized }
+    var contactsGranted: Bool { CNContactStore.authorizationStatus(for: .contacts) == .authorized }
+    var inputMonitoringGranted: Bool { CGPreflightListenEventAccess() }
+    var accessibilityTrusted: Bool { AXIsProcessTrusted() }
+
+    // MARK: Actions
+
+    func refresh() { refreshVersion += 1 }
+
+    func open(_ url: URL) {
+        NSWorkspace.shared.open(url)
+    }
+
+    func quit() {
+        NSApp.terminate(nil)
+    }
+}
+
+// MARK: - SwiftUI view
+
+/// The Settings window body. Two sections mirroring the permission model:
+/// required (Tier-1) permissions with a status row each, and optional (Tier-2)
+/// upgrades as toggles that describe what they unlock and which permission they
+/// need.
+struct SettingsView: View {
+    @Bindable var model: SettingsModel
+    var onClose: () -> Void = {}
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    tier1Section
+                    tier2Section
+                    footerNote
+                }
+                .padding(20)
+            }
+            Divider()
+            footerButtons
+        }
+        .frame(width: 440)
+        .id(model.refreshVersion) // re-evaluate on refresh -> re-read live permissions
+        .onAppear {
+            model.refresh()
+        }
+    }
+
+    // MARK: Header
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "mic.fill")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(.green)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Voicy Settings")
+                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                Text("Permissions and the features they unlock")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+        .padding(16)
+    }
+
+    // MARK: Tier 1 - required
+
+    private var tier1Section: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionTitle("Required - needed for Voicy to work",
+                         symbol: "checkmark.shield")
+
+            permissionRow(
+                title: "Microphone",
+                detail: "Records your voice so it can be transcribed on-device.",
+                granted: model.microphoneGranted,
+                pane: SystemSettingsPane.microphone
+            )
+
+            permissionRow(
+                title: "Contacts",
+                detail: "Turns the name you speak into the right WhatsApp number.",
+                granted: model.contactsGranted,
+                pane: SystemSettingsPane.contacts
+            )
+
+            Text("With only these two, Voicy is fully functional: hotkey is Control+Space, and sending opens WhatsApp pre-filled for you to confirm.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: Tier 2 - optional upgrades
+
+    private var tier2Section: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionTitle("Optional upgrades - each one a choice",
+                         symbol: "slider.horizontal.3")
+
+            tier2Row(
+                toggle: $model.holdToTalk,
+                title: "Hold a key to talk",
+                unlocks: "Push-to-talk on a bare modifier (Right-Option).",
+                permission: "Input Monitoring",
+                granted: model.inputMonitoringGranted,
+                pane: SystemSettingsPane.listenEvent
+            )
+
+            tier2Row(
+                toggle: $model.sendWithoutEnter,
+                title: "Send without pressing Enter",
+                unlocks: "Completes the send with a synthetic Return once WhatsApp has focus.",
+                permission: "Accessibility",
+                granted: model.accessibilityTrusted,
+                pane: SystemSettingsPane.accessibility
+            )
+
+            Text("Revoking a Tier-2 permission later degrades cleanly - Voicy keeps working, just without the optional shortcut.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var footerNote: some View {
+        Text("Speech recognition runs entirely on-device. Audio never leaves your Mac.")
+            .font(.system(size: 11))
+            .foregroundStyle(.secondary)
+    }
+
+    // MARK: Footer
+
+    private var footerButtons: some View {
+        HStack {
+            Button("Quit Voicy", role: .destructive) { model.quit() }
+            Spacer()
+            Button("Close") { onClose() }
+                .keyboardShortcut(.defaultAction)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    }
+
+    // MARK: Shared row builders
+
+    private func sectionTitle(_ text: String, symbol: String) -> some View {
+        Label {
+            Text(text)
+                .font(.system(size: 13, weight: .semibold))
+        } icon: {
+            Image(systemName: symbol)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.secondary)
+        }
+        .foregroundStyle(.secondary)
+    }
+
+    /// Tier-1 status row: name, what it does, granted badge, and (when missing)
+    /// an "Open System Settings" button for the exact pane.
+    private func permissionRow(title: String,
+                               detail: String,
+                               granted: Bool,
+                               pane: URL) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 14, weight: .semibold))
+                Text(detail).font(.system(size: 12)).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if granted {
+                Label("Granted", systemImage: "checkmark.circle.fill")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.green)
+            } else {
+                Button("Open System Settings") { model.open(pane) }
+                    .controlSize(.small)
+            }
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .fill(Color.primary.opacity(0.04)))
+    }
+
+    /// Tier-2 row: an on/off toggle for the feature plus, when it is ON but the
+    /// permission is not yet granted, the button to open the needed pane.
+    private func tier2Row(toggle: Binding<Bool>,
+                          title: String,
+                          unlocks: String,
+                          permission: String,
+                          granted: Bool,
+                          pane: URL) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.system(size: 14, weight: .semibold))
+                    Text(unlocks).font(.system(size: 12)).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Toggle("", isOn: toggle)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+            }
+
+            HStack(spacing: 8) {
+                Image(systemName: "lock.shield")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Text("Needs: \(permission)")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Spacer()
+
+                if granted {
+                    Label("Granted", systemImage: "checkmark.circle.fill")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.green)
+                } else if toggle.wrappedValue {
+                    Button("Open System Settings") { model.open(pane) }
+                        .controlSize(.small)
+                } else {
+                    Text("Off - not required")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .fill(Color.primary.opacity(0.04)))
+    }
+}
