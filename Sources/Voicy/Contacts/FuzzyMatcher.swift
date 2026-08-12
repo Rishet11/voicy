@@ -147,6 +147,11 @@ public final class FuzzyMatcher: Sendable {
     /// candidate list.
     static let surnameOnlyWeight: Double = 0.88
 
+    /// How close in length two names must be, once spaces are removed, before
+    /// they may be compared as a split/joined version of each other. 0.75 admits
+    /// "paulkit" vs "pulkit" (6/7) and rejects "rahulsharma" vs "rahul" (5/11).
+    static let splitNameLengthRatio: Double = 0.75
+
     /// When true, apply a capped Soundex bonus to weak matches. Default off.
     public let usePhoneticBonus: Bool
 
@@ -182,9 +187,42 @@ public final class FuzzyMatcher: Sendable {
             return 0.0
         }
 
+        // Recognizers split unfamiliar names into two familiar words: the harness
+        // has transcribed "Pulkit" as "Paul Kit" and "Siddharth" as "Sid Harth".
+        // Comparing with all spacing removed catches that whole class, because
+        // "paulkit" vs "pulkit" is a near-identical string even though
+        // token-by-token they look like different people. Purely a comparison;
+        // the recipient shown to the user is still the contact's real name.
+        let squashedQuery = query.filter { !$0.isWhitespace }
+
         var best = 0.0
         for (v, weight) in weighted {
             let variantTokens = v.split(whereSeparator: { !$0.isLetter }).map(String.init)
+
+            // Apply the space-collapsed comparison ONLY where the word count
+            // actually disagrees, which is the signature of a split (or joined)
+            // name. Comparing two multi-word names with spaces removed is far too
+            // permissive: "rahulsharma" and "rahulverma" look similar as raw
+            // strings, and applying it there made two different people collide.
+            let squashedVariant = v.filter { !$0.isWhitespace }
+            //
+            // The second guard is a length check. Splitting a name preserves its
+            // letters, so the two squashed strings must be nearly the same length
+            // ("paulkit" vs "pulkit", 7 and 6). Without it, "rahulsharma" scored
+            // 0.89 against the bare first name "rahul" purely because one is a
+            // prefix of the other, which pulled a second Rahul into contention
+            // and turned a decisive match into an ambiguous one.
+            let wordCountDisagrees = (queryTokens.count > 1 && variantTokens.count == 1)
+                || (queryTokens.count == 1 && variantTokens.count > 1)
+            let lengths = [squashedQuery.count, squashedVariant.count]
+            let lengthRatio = Double(lengths.min()!) / Double(max(1, lengths.max()!))
+            if wordCountDisagrees && lengthRatio >= Self.splitNameLengthRatio {
+                if squashedQuery == squashedVariant { return 1.0 }
+                if squashedQuery.count >= Self.minimumFuzzyQueryLength {
+                    best = max(best, JaroWinkler.similarity(squashedQuery, squashedVariant) * weight)
+                }
+            }
+
             let s: Double
             if queryTokens.count >= 2 {
                 // Multi-token name: every token must find a match, otherwise a

@@ -162,6 +162,32 @@ func runContactTests() -> (passed: Int, failed: Int) {
         t.check(false, "an exact match on \"Jo\" must resolve")
     }
 
+    // Recognizers split unfamiliar names into two familiar words. Measured:
+    // "Pulkit" came back as "Paul Kit", "Siddharth" as "Sid Harth".
+    switch resolver.resolve(spoken: "Paul Kit", contacts: contacts, aliases: [:]) {
+    case .resolved(let c):
+        t.equal(c.identifier, "fixture-pulkit", "split name \"Paul Kit\" resolves to Pulkit")
+    case .ambiguous(let cs):
+        t.check(false, "\"Paul Kit\" should resolve", "ambiguous over \(cs.map(\.displayName))")
+    case .notFound:
+        t.check(false, "\"Paul Kit\" should resolve, got notFound")
+    }
+
+    switch resolver.resolve(spoken: "Sid Harth", contacts: contacts, aliases: [:]) {
+    case .resolved(let c):
+        t.equal(c.identifier, "fixture-siddharth", "split name \"Sid Harth\" resolves to Siddharth")
+    default:
+        t.check(false, "\"Sid Harth\" should resolve to Siddharth")
+    }
+
+    // Collapsing spaces must not make two genuinely different people collide.
+    switch resolver.resolve(spoken: "Rahul Sharma", contacts: contacts, aliases: [:]) {
+    case .resolved(let c):
+        t.equal(c.identifier, "fixture-rahul-sharma", "space collapsing keeps full names distinct")
+    default:
+        t.check(false, "\"Rahul Sharma\" should still resolve exactly")
+    }
+
     // A first name outranks somebody else's surname. "Polka" (misheard "Pulkit")
     // was previously close enough to "Kapoor" to drag Stone Kapoor in as a
     // candidate.
