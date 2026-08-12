@@ -54,11 +54,11 @@ You never open WhatsApp. You never find the chat. You never leave what you're do
                             ▼
     ┌───────────────────────────────────────────┐
     │  🧑  Pulkit                                │
-    │      +91 98765 43210                       │
+    │      +91 98*** 4*2*0                       │
     │                                            │
     │  MESSAGE                                   │
     │  ┌──────────────────────────────────────┐  │
-    │  │ I'll be late                         │  │
+    │  │ When are you coming to Delhi?        │  │
     │  └──────────────────────────────────────┘  │
     │                                            │
     │  ⏎ Send    esc Cancel    ⌘E Edit          │
