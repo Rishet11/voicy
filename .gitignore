@@ -6,3 +6,10 @@ wip/
 build/
 main
 *.dSYM/
+
+# local working notes, not repo content
+BUILD-STATE.md
+NEEDS-YOU.md
+CLAUDE.md
+commits.sh
+push.sh
