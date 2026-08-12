@@ -90,25 +90,28 @@ final class SettingsModel {
 /// upgrades as toggles that describe what they unlock and which permission they
 /// need.
 struct SettingsView: View {
+    @Environment(\.colorScheme) private var scheme
     @Bindable var model: SettingsModel
     var onClose: () -> Void = {}
 
     var body: some View {
+        let palette = Theme.Colors.palette(scheme)
         VStack(alignment: .leading, spacing: 0) {
             header
             Divider()
             ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: Theme.Space.xl) {
                     tier1Section
                     tier2Section
                     footerNote
                 }
-                .padding(20)
+                .padding(Theme.Space.xl - 4)
             }
             Divider()
             footerButtons
         }
         .frame(width: 440)
+        .background(palette.backgroundDeep)
         .id(model.refreshVersion) // re-evaluate on refresh -> re-read live permissions
         .onAppear {
             model.refresh()
@@ -118,26 +121,29 @@ struct SettingsView: View {
     // MARK: Header
 
     private var header: some View {
-        HStack(spacing: 12) {
+        let palette = Theme.Colors.palette(scheme)
+        return HStack(spacing: Theme.Space.md) {
             Image(systemName: "mic.fill")
                 .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(.green)
+                .foregroundStyle(palette.success)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Voicy Settings")
-                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                    .font(Theme.Typography.headline(.bold))
                 Text("Permissions and the features they unlock")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
+                    .font(Theme.Typography.caption())
+                    .foregroundStyle(palette.textSecondary)
             }
             Spacer()
         }
-        .padding(16)
+        .padding(Theme.Space.lg)
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: Tier 1 - required
 
     private var tier1Section: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let palette = Theme.Colors.palette(scheme)
+        return VStack(alignment: .leading, spacing: Theme.Space.md) {
             sectionTitle("Required - needed for Voicy to work",
                          symbol: "checkmark.shield")
 
@@ -156,15 +162,16 @@ struct SettingsView: View {
             )
 
             Text("With only these two, Voicy is fully functional: hotkey is Control+Space, and sending opens WhatsApp pre-filled for you to confirm.")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
+                .font(Theme.Typography.caption())
+                .foregroundStyle(palette.textSecondary)
         }
     }
 
     // MARK: Tier 2 - optional upgrades
 
     private var tier2Section: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let palette = Theme.Colors.palette(scheme)
+        return VStack(alignment: .leading, spacing: Theme.Space.md) {
             sectionTitle("Optional upgrades - each one a choice",
                          symbol: "slider.horizontal.3")
 
@@ -187,15 +194,15 @@ struct SettingsView: View {
             )
 
             Text("Revoking a Tier-2 permission later degrades cleanly - Voicy keeps working, just without the optional shortcut.")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
+                .font(Theme.Typography.caption())
+                .foregroundStyle(palette.textSecondary)
         }
     }
 
     private var footerNote: some View {
         Text("Speech recognition runs entirely on-device. Audio never leaves your Mac.")
-            .font(.system(size: 11))
-            .foregroundStyle(.secondary)
+            .font(Theme.Typography.caption())
+            .foregroundStyle(Theme.Colors.palette(scheme).textSecondary)
     }
 
     // MARK: Footer
@@ -203,26 +210,30 @@ struct SettingsView: View {
     private var footerButtons: some View {
         HStack {
             Button("Quit Voicy", role: .destructive) { model.quit() }
+                .accessibilityHint("Quits Voicy entirely.")
             Spacer()
             Button("Close") { onClose() }
                 .keyboardShortcut(.defaultAction)
+                .accessibilityHint("Closes Settings.")
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, Theme.Space.lg)
+        .padding(.vertical, Theme.Space.md)
     }
 
     // MARK: Shared row builders
 
     private func sectionTitle(_ text: String, symbol: String) -> some View {
-        Label {
+        let palette = Theme.Colors.palette(scheme)
+        return Label {
             Text(text)
-                .font(.system(size: 13, weight: .semibold))
+                .font(Theme.Typography.callout(.semibold))
         } icon: {
             Image(systemName: symbol)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.secondary)
+                .font(Theme.Typography.callout(.semibold))
+                .foregroundStyle(palette.textSecondary)
         }
-        .foregroundStyle(.secondary)
+        .foregroundStyle(palette.textSecondary)
+        .accessibilityAddTraits(.isHeader)
     }
 
     /// Tier-1 status row: name, what it does, granted badge, and (when missing)
@@ -231,24 +242,28 @@ struct SettingsView: View {
                                detail: String,
                                granted: Bool,
                                pane: URL) -> some View {
-        HStack(spacing: 12) {
+        let palette = Theme.Colors.palette(scheme)
+        return HStack(spacing: Theme.Space.md) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.system(size: 14, weight: .semibold))
-                Text(detail).font(.system(size: 12)).foregroundStyle(.secondary)
+                Text(title).font(Theme.Typography.body(.semibold))
+                Text(detail).font(Theme.Typography.caption()).foregroundStyle(palette.textSecondary)
             }
             Spacer()
             if granted {
                 Label("Granted", systemImage: "checkmark.circle.fill")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.green)
+                    .font(Theme.Typography.caption(.medium))
+                    .foregroundStyle(palette.success)
             } else {
                 Button("Open System Settings") { model.open(pane) }
                     .controlSize(.small)
+                    .accessibilityHint("Opens System Settings to grant \(title) access.")
             }
         }
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .fill(Color.primary.opacity(0.04)))
+        .padding(Theme.Space.md)
+        .background(RoundedRectangle(cornerRadius: Theme.Corner.md, style: .continuous)
+            .fill(palette.surface))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title): \(detail) \(granted ? "Granted" : "Not granted")")
     }
 
     /// Tier-2 row: an on/off toggle for the feature plus, when it is ON but the
@@ -259,43 +274,47 @@ struct SettingsView: View {
                           permission: String,
                           granted: Bool,
                           pane: URL) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 12) {
+        let palette = Theme.Colors.palette(scheme)
+        return VStack(alignment: .leading, spacing: Theme.Space.sm + 2) {
+            HStack(alignment: .top, spacing: Theme.Space.md) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.system(size: 14, weight: .semibold))
-                    Text(unlocks).font(.system(size: 12)).foregroundStyle(.secondary)
+                    Text(title).font(Theme.Typography.body(.semibold))
+                    Text(unlocks).font(Theme.Typography.caption()).foregroundStyle(palette.textSecondary)
                 }
                 Spacer()
                 Toggle("", isOn: toggle)
                     .labelsHidden()
                     .toggleStyle(.switch)
+                    .accessibilityLabel(title)
+                    .accessibilityHint("Requires \(permission).")
             }
 
-            HStack(spacing: 8) {
+            HStack(spacing: Theme.Space.sm) {
                 Image(systemName: "lock.shield")
                     .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(palette.textSecondary)
                 Text("Needs: \(permission)")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                    .font(Theme.Typography.caption())
+                    .foregroundStyle(palette.textSecondary)
                 Spacer()
 
                 if granted {
                     Label("Granted", systemImage: "checkmark.circle.fill")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.green)
+                        .font(Theme.Typography.caption(.medium))
+                        .foregroundStyle(palette.success)
                 } else if toggle.wrappedValue {
                     Button("Open System Settings") { model.open(pane) }
                         .controlSize(.small)
+                        .accessibilityHint("Opens System Settings to grant \(permission) access.")
                 } else {
                     Text("Off - not required")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
+                        .font(Theme.Typography.caption())
+                        .foregroundStyle(palette.textSecondary)
                 }
             }
         }
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .fill(Color.primary.opacity(0.04)))
+        .padding(Theme.Space.md)
+        .background(RoundedRectangle(cornerRadius: Theme.Corner.md, style: .continuous)
+            .fill(palette.surface))
     }
 }

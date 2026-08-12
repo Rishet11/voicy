@@ -173,6 +173,37 @@ enum Theme {
         static func value<T: Equatable>(_ reduce: Bool, _ value: T) -> Animation? {
             reduce ? nil : snappy
         }
+
+        /// Plain fade used instead of a spring when Reduce Motion is on.
+        static let plainFade = Animation.easeInOut(duration: 0.16)
+
+        /// System-wide Reduce Motion setting.
+        /// https://developer.apple.com/documentation/appkit/nsworkspace/accessibilitydisplayshouldreducemotion
+        static var reduceMotionEnabled: Bool {
+            NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        }
+    }
+
+    // MARK: Layout — fixed sizes shared by the recording pill and confirm card.
+
+    enum Layout {
+        // Recording pill
+        static let pillSize = CGSize(width: 176, height: 46)
+        static let pillTopInset: CGFloat = 20
+        static let waveformBarCount = 32
+        static let waveformBarWidth: CGFloat = 3
+        static let waveformBarSpacing: CGFloat = 2
+        static let waveformMinBarHeight: CGFloat = 4
+        static let waveformMaxBarHeight: CGFloat = 22
+        static let waveformFrameSize = CGSize(width: 108, height: 24)
+        static let dotSize: CGFloat = 10
+        static let dotHaloSize: CGFloat = 20
+
+        // Confirm card
+        static let cardWidth: CGFloat = 420
+        static let cardMinHeight: CGFloat = 120
+        static let avatarSize: CGFloat = 42
+        static let appIconBadgeSize: CGFloat = 44
     }
 
     // MARK: Shared surface shadow: a genuine drop + the "lit top edge" glass

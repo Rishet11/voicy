@@ -43,7 +43,9 @@ public final class ConfirmPanelController {
         ))
         self.hosting = host
 
-        let panel = NSPanel(contentRect: NSRect(origin: .zero, size: NSSize(width: 420, height: 300)),
+        let panel = NSPanel(contentRect: NSRect(origin: .zero,
+                                                size: NSSize(width: Theme.Layout.cardWidth,
+                                                             height: Theme.Layout.cardWidth * 0.7)),
                             styleMask: [.borderless],
                             backing: .buffered,
                             defer: false)
@@ -190,10 +192,10 @@ public final class ConfirmPanelController {
     // MARK: Layout
 
     private func sizeToFit() {
-        let width: CGFloat = 420
+        let width: CGFloat = Theme.Layout.cardWidth
         hosting.frame = NSRect(origin: .zero, size: NSSize(width: width, height: 1))
         hosting.layoutSubtreeIfNeeded()
-        let height = max(hosting.fittingSize.height, 120)
+        let height = max(hosting.fittingSize.height, Theme.Layout.cardMinHeight)
         panel.setContentSize(NSSize(width: width, height: height))
     }
 

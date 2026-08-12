@@ -19,14 +19,14 @@ final class RecordingLevels {
     private var smoothed: Float = 0
     private let capacity: Int
 
-    init(capacity: Int = 30) {
+    init(capacity: Int = Theme.Layout.waveformBarCount) {
         self.capacity = capacity
         self.bars = Array(repeating: 0, count: capacity)
     }
 
     /// Feed one real RMS measurement (clamped to 0...1). A light exponential
     /// smoothing makes the meter feel organic, but every visible change still
-    /// traces to an actual amplitude value.
+    /// traces to an actual amplitude value. Shifts the ring buffer by one.
     func push(_ rms: Float) {
         let clamped = min(max(rms, 0), 1)
         smoothed = smoothed * 0.55 + clamped * 0.45
@@ -35,48 +35,57 @@ final class RecordingLevels {
     }
 }
 
-/// The pulse on the left of the pill: a red dot with an expanding halo.
+/// The pulse on the left of the pill: a coloured dot with an expanding halo.
 /// (This is a deliberate visual pulse, not the audio meter.)
 private struct RecordingDot: View {
+    @Environment(\.colorScheme) private var scheme
     @State private var pulsing = false
+    private var reduceMotion: Bool { Theme.Motion.reduceMotionEnabled }
 
     var body: some View {
+        let palette = Theme.Colors.palette(scheme)
         ZStack {
             Circle()
-                .fill(Color.red.opacity(0.35))
-                .frame(width: 20, height: 20)
-                .scaleEffect(pulsing ? 1.7 : 1.0)
-                .opacity(pulsing ? 0 : 0.55)
+                .fill(palette.live.opacity(0.35))
+                .frame(width: Theme.Layout.dotHaloSize, height: Theme.Layout.dotHaloSize)
+                .scaleEffect(pulsing && !reduceMotion ? 1.7 : 1.0)
+                .opacity(pulsing && !reduceMotion ? 0 : 0.55)
             Circle()
-                .fill(Color.red)
-                .frame(width: 10, height: 10)
-                .shadow(color: .red.opacity(0.7), radius: 4)
+                .fill(palette.live)
+                .frame(width: Theme.Layout.dotSize, height: Theme.Layout.dotSize)
+                .shadow(color: palette.live.opacity(0.7), radius: 4)
         }
         .onAppear {
-            withAnimation(.easeOut(duration: 1.1).repeatForever(autoreverses: false)) {
+            guard !reduceMotion else { return }
+            withAnimation(Theme.Motion.breathing) {
                 pulsing = true
             }
         }
+        .accessibilityHidden(true) // decorative; the pill's own label covers state
     }
 }
 
 /// The live waveform: a row of bars whose heights are proportional to the most
-/// recent RMS samples. Driven entirely by `RecordingLevels`.
+/// recent RMS samples, held in a rolling ring buffer so it reads as sound
+/// rather than a single pulsing blob. Driven entirely by `RecordingLevels`.
 private struct Waveform: View {
+    @Environment(\.colorScheme) private var scheme
     let bars: [Float]
-
-    private var gradient: LinearGradient {
-        LinearGradient(colors: [.red.opacity(0.95), .orange],
-                       startPoint: .bottom, endPoint: .top)
-    }
+    private var reduceMotion: Bool { Theme.Motion.reduceMotionEnabled }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 2) {
+        let palette = Theme.Colors.palette(scheme)
+        let gradient = LinearGradient(colors: [palette.live.opacity(0.95), palette.live.opacity(0.55)],
+                                       startPoint: .bottom, endPoint: .top)
+        HStack(alignment: .center, spacing: Theme.Layout.waveformBarSpacing) {
             ForEach(Array(bars.enumerated()), id: \.offset) { _, level in
-                RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                RoundedRectangle(cornerRadius: Theme.Layout.waveformBarWidth / 2, style: .continuous)
                     .fill(gradient)
-                    .frame(width: 3, height: max(4, 6 + CGFloat(level) * 18))
-                    .animation(.linear(duration: 0.05), value: level)
+                    .frame(width: Theme.Layout.waveformBarWidth,
+                           height: max(Theme.Layout.waveformMinBarHeight,
+                                       Theme.Layout.waveformMinBarHeight
+                                        + CGFloat(level) * Theme.Layout.waveformMaxBarHeight))
+                    .animation(reduceMotion ? Theme.Motion.plainFade : Theme.Motion.snappy, value: level)
             }
         }
     }
@@ -84,6 +93,7 @@ private struct Waveform: View {
 
 /// The pill's SwiftUI body. Sized by the panel; contents are self-centered.
 struct RecordingIndicatorView: View {
+    @Environment(\.colorScheme) private var scheme
     let levels: RecordingLevels
 
     init(levels: RecordingLevels) {
@@ -91,19 +101,24 @@ struct RecordingIndicatorView: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
+        let palette = Theme.Colors.palette(scheme)
+        HStack(spacing: Theme.Space.sm) {
             RecordingDot()
             Waveform(bars: levels.bars)
-                .frame(width: 96, height: 24)
+                .frame(width: Theme.Layout.waveformFrameSize.width,
+                       height: Theme.Layout.waveformFrameSize.height)
             Text("Recording")
-                .font(.system(size: 13, weight: .semibold, design: .rounded))
-                .foregroundStyle(.primary)
+                .font(Theme.Typography.callout(.semibold))
+                .foregroundStyle(palette.textPrimary)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, Theme.Space.lg)
+        .padding(.vertical, Theme.Space.md)
         .background(.ultraThinMaterial, in: Capsule())
-        .overlay(Capsule().strokeBorder(.white.opacity(0.12), lineWidth: 1))
-        .shadow(color: .black.opacity(0.28), radius: 14, y: 5)
+        .overlay(Capsule().strokeBorder(palette.border, lineWidth: 1))
+        .shadow(color: .black.opacity(scheme == .dark ? 0.28 : 0.12), radius: 14, y: 5)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Recording voice message")
+        .accessibilityHint("Listening for your message. Release the shortcut key to finish.")
     }
 }
 
@@ -120,7 +135,7 @@ public final class RecordingIndicatorController {
         let host = NSHostingView(rootView: RecordingIndicatorView(levels: levels))
         self.hosting = host
 
-        let size = NSSize(width: 156, height: 46)
+        let size = NSSize(width: Theme.Layout.pillSize.width, height: Theme.Layout.pillSize.height)
         let panel = NSPanel(contentRect: NSRect(origin: .zero, size: size),
                             styleMask: [.borderless, .nonactivatingPanel],
                             backing: .buffered,
@@ -165,7 +180,7 @@ public final class RecordingIndicatorController {
         let size = panel.frame.size
         let x = frame.midX - size.width / 2
         // Just below the menu bar so it "floats" at the very top-center.
-        let y = frame.maxY - size.height - 20
+        let y = frame.maxY - size.height - Theme.Layout.pillTopInset
         panel.setFrameOrigin(NSPoint(x: x, y: y))
     }
 }
