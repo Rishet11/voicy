@@ -54,6 +54,15 @@ public struct IntentParser: Sendable {
     /// the user meant to say would be rewriting them.
     private static let preConnectorFillers: Set<String> = ["and", "so", "then", "ok", "okay"]
 
+    /// Words people start a sentence with that are never a person's name. Used
+    /// only to reject the verb-less shape; they are untouched everywhere else.
+    private static let discourseMarkers: Set<String> = [
+        "actually", "so", "look", "well", "ok", "okay", "right", "anyway",
+        "honestly", "basically", "listen", "hey", "yeah", "yes", "no", "nope",
+        "um", "uh", "hmm", "oh", "and", "but", "then", "also", "sorry",
+        "wait", "please", "just", "maybe", "like",
+    ]
+
     /// Command verbs. Matched case-insensitively.
     private static let verbs: Set<String> = [
         "message", "tell", "send", "text", "say",
@@ -235,9 +244,19 @@ public struct IntentParser: Sendable {
     private func startsWithNameLikeAddress(_ tokens: [Token]) -> Bool {
         guard tokens.count >= 2 else { return false }
 
+        // A discourse marker is not a name. Without this, ordinary speech that
+        // merely pauses after its first word — "Actually, I think we should go",
+        // "Look, I can't make it", "So, let's talk later" — was accepted as a
+        // message addressed to someone called "Actually". Resolution would find
+        // nobody, so nothing could be sent, but offering to message a person who
+        // does not exist is still wrong.
+        if Self.discourseMarkers.contains(Self.bareWord(tokens[0].word)) { return false }
+
         var nameCount = 0
         while nameCount < tokens.count, nameCount < 2 {
-            let word = tokens[nameCount].word.lowercased()
+            // Compare with punctuation stripped. The boundary set holds bare
+            // words, so "so," would not have matched "so" and the check leaked.
+            let word = Self.bareWord(tokens[nameCount].word)
             if Self.nameBoundaries.contains(word) { break }
             nameCount += 1
             // Punctuation after the name is the strongest signal: "Siddharth,".

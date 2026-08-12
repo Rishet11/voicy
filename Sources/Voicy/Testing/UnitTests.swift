@@ -180,6 +180,23 @@ func runContactTests() -> (passed: Int, failed: Int) {
         t.check(false, "\"Sid Harth\" should resolve to Siddharth")
     }
 
+    // The split-name branch must not marry two different people who merely share
+    // a prefix and a letter count. "Siddharth" vs "Sid Kapoor" squashes to
+    // "siddharth" vs "sidkapoor", scores ~0.79 on raw similarity, and without a
+    // floor that sits dangerously near the 0.80 auto-resolve threshold.
+    let sidKapoor = [
+        Contact(identifier: "sid-kapoor", givenName: "Sid", familyName: "Kapoor",
+                nickname: "", organizationName: "",
+                phones: [ContactPhone(label: "mobile", e164: "919812345688")]),
+    ]
+    switch resolver.resolve(spoken: "Siddharth", contacts: sidKapoor, aliases: [:]) {
+    case .resolved(let c):
+        t.check(false, "\"Siddharth\" must not auto-resolve to Sid Kapoor",
+                "resolved to \(c.displayName)")
+    default:
+        t.check(true, "different people are not merged by space collapsing")
+    }
+
     // Collapsing spaces must not make two genuinely different people collide.
     switch resolver.resolve(spoken: "Rahul Sharma", contacts: contacts, aliases: [:]) {
     case .resolved(let c):

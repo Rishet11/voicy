@@ -63,10 +63,17 @@ final class MicrophoneRecorder {
     /// Starts capturing. Returns the input sample rate actually used.
     func start() throws {
         let input = engine.inputNode
-        let inputFormat = cachedInputFormat ?? input.inputFormat(forBus: 0)
+
+        // Always read the LIVE hardware format. Reading it from the cache and
+        // then comparing it against the cache is a comparison with itself, which
+        // is always equal, so the converter could never be rebuilt after a
+        // device change. Concretely: prewarm caches the built-in mic, the user
+        // plugs in AirPods at a different sample rate, and the tap gets
+        // installed with a format the node no longer has.
+        let inputFormat = input.inputFormat(forBus: 0)
 
         let fmt = Self.analysisFormat
-        // Rebuild the converter only if prewarm did not, or the device changed.
+        // Rebuild only when prewarm did not run, or the input device changed.
         if targetFormat == nil || converter == nil || cachedInputFormat != inputFormat {
             targetFormat = fmt
             converter = AVAudioConverter(from: inputFormat, to: fmt)

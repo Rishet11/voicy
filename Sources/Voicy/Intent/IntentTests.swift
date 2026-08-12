@@ -210,6 +210,22 @@ public func runIntentTests() -> (passed: Int, failed: Int) {
     expectNotParsed("Pulkit", "a bare name is not a message")
     expectNotParsed("Pulkit,", "a bare name with punctuation is not a message")
     expectNotParsed("hello there everyone", "no verb, no connector, no punctuation")
+
+    // Ordinary speech that merely pauses after its first word must NOT become a
+    // message addressed to somebody called "Actually".
+    expectNotParsed("Actually, I think we should go", "discourse marker 'Actually,'")
+    expectNotParsed("Look, I can't make it", "discourse marker 'Look,'")
+    expectNotParsed("So, let's talk later", "discourse marker 'So,'")
+    expectNotParsed("Well, that went badly", "discourse marker 'Well,'")
+    expectNotParsed("Honestly, I am tired", "discourse marker 'Honestly,'")
+    expectNotParsed("Hey, are you around", "discourse marker 'Hey,'")
+    expectNotParsed("Sorry, I am late", "discourse marker 'Sorry,'")
+    expectNotParsed("Wait, that is wrong", "discourse marker 'Wait,'")
+
+    // ...but a real name in the same shape still works.
+    expect("Aarav, I am late",
+           recipient: "Aarav", body: "I am late", app: .whatsapp,
+           "a real name in the verb-less shape still parses")
     expectNotParsed("message", "verb only, no recipient or body")
     expectNotParsed("", "empty transcript")
 

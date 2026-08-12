@@ -152,6 +152,17 @@ public final class FuzzyMatcher: Sendable {
     /// "paulkit" vs "pulkit" (6/7) and rejects "rahulsharma" vs "rahul" (5/11).
     static let splitNameLengthRatio: Double = 0.75
 
+    /// How similar two space-collapsed names must be before one is accepted as a
+    /// split version of the other. Deliberately high: a genuine split is nearly
+    /// the same string once spaces are gone.
+    static let splitNameSimilarityFloor: Double = 0.90
+
+    /// Length ratio at or above which two single-word names are treated as
+    /// comparable and not damped at all. Below it, damping ramps in.
+    /// 0.7 keeps "arav" vs "aarav" (0.80) undamped and damps "sid" vs
+    /// "siddharth" (0.33) hard.
+    static let lengthDampingKneeRatio: Double = 0.7
+
     /// When true, apply a capped Soundex bonus to weak matches. Default off.
     public let usePhoneticBonus: Bool
 
@@ -219,7 +230,18 @@ public final class FuzzyMatcher: Sendable {
             if wordCountDisagrees && lengthRatio >= Self.splitNameLengthRatio {
                 if squashedQuery == squashedVariant { return 1.0 }
                 if squashedQuery.count >= Self.minimumFuzzyQueryLength {
-                    best = max(best, JaroWinkler.similarity(squashedQuery, squashedVariant) * weight)
+                    let squashedScore = JaroWinkler.similarity(squashedQuery, squashedVariant)
+                    // A high floor, because this branch answers a narrow question:
+                    // "is this the SAME name with different spacing?" A real split
+                    // is near-identical once squashed ("paulkit" vs "pulkit",
+                    // "sidharth" vs "siddharth" both score >0.93). Without a floor
+                    // this branch scored 0.79 for "siddharth" vs "sidkapoor" —
+                    // two different people — purely on shared letters and a shared
+                    // "sid" prefix, which is uncomfortably close to the 0.80
+                    // auto-resolve threshold.
+                    if squashedScore >= Self.splitNameSimilarityFloor {
+                        best = max(best, squashedScore * weight)
+                    }
                 }
             }
 
@@ -252,7 +274,32 @@ public final class FuzzyMatcher: Sendable {
 
                 s = (perToken.reduce(0, +) / Double(perToken.count)) * weight
             } else {
-                s = JaroWinkler.similarity(query, v) * weight
+                // Damp by how far apart the two names are in length.
+                //
+                // Jaro-Winkler's prefix bonus makes a short name look like a
+                // strong match for any longer name starting with it: "Sid" vs
+                // "Siddharth" scores 0.844, over the 0.80 auto-resolve
+                // threshold, so a spoken "Siddharth" would silently resolve to a
+                // contact called Sid Kapoor. Different person, confident send.
+                //
+                // Damping scales the score by how comparable the lengths are, so
+                // a near-length near-match ("Sidharth" vs "Siddharth") keeps
+                // almost all of its score while a 3-vs-9 letter match drops into
+                // "ask the user" territory instead of resolving.
+                // Names of comparable length are not damped at all: a one-letter
+                // difference is a mishearing, not a different person, and
+                // penalizing it pushed "Arav" (heard for "Aarav") below the
+                // resolve floor. Damping only engages once the lengths genuinely
+                // diverge, which is where the prefix bonus stops being evidence.
+                let ratio = Double(min(query.count, v.count)) / Double(max(1, max(query.count, v.count)))
+                let lengthDamping = ratio >= Self.lengthDampingKneeRatio
+                    ? 1.0
+                    : 0.6 + (ratio / Self.lengthDampingKneeRatio) * 0.4
+                s = JaroWinkler.similarity(query, v) * weight * lengthDamping
+
+                // A variant that literally BEGINS with what was said is a
+                // deliberate exception: saying "Sid" to reach "Siddharth" is
+                // normal, and short-to-long is how people actually abbreviate.
                 if v.hasPrefix(query) { best = max(best, 0.97 * weight) }
             }
             best = max(best, s)
