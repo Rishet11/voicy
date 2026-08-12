@@ -3,3 +3,6 @@ dist/
 wip/
 .DS_Store
 *.xcuserstate
+build/
+main
+*.dSYM/
