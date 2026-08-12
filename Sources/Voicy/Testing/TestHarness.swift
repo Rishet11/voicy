@@ -260,6 +260,11 @@ struct TestHarness {
             }
         case .ambiguous(let candidates):
             out.resolution = "ambiguous: " + candidates.map(\.displayName).joined(separator: ", ")
+            // Record the top candidate so a test can assert "the right person was
+            // OFFERED" even when the name was too mangled to resolve outright.
+            // No phone is recorded, so no deep link is built: an ambiguous match
+            // must never become a send without the user choosing.
+            out.resolvedName = candidates.first?.displayName
         case .notFound:
             out.resolution = "notFound"
         }

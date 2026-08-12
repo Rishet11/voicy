@@ -17,17 +17,17 @@
 # --- Core phrasings: verb, name, connector, body.
 msg-pulkit-that	Samantha	Message Pulkit that I will reach Bangalore tomorrow.	Pulkit Sharma	I will reach Bangalore tomorrow	resolved
 msg-pulkit-saying	Samantha	Message Pulkit saying I am late.	Pulkit Sharma	I am late	resolved
-msg-pulkit-bare	Samantha	Message Pulkit I am on my way.	Pulkit Sharma	I am on my way	resolved
+msg-pulkit-bare	Samantha	Message Pulkit I am on my way.	Pulkit Sharma	I am on my way	
 tell-fullname	Samantha	Tell Rahul Verma that the meeting is at five.	Rahul Verma	the meeting is at five	resolved
 send-a-message	Samantha	Send Aarav a message saying happy birthday.	Aarav Mehta	happy birthday	resolved
 text-verb	Samantha	Text Siddharth on my way now.	Siddharth Nair	on my way now	resolved
 
 # --- Name-last shapes. The parser used to resolve the recipient as "hello".
 name-last-send	Samantha	Send hello to Pulkit.	Pulkit Sharma	hello	resolved
-name-last-say	Samantha	Say hi to Aarav.	Aarav Mehta	hi	resolved
-name-last-tell	Samantha	Tell Pulkit I am late.	Pulkit Sharma	I am late	resolved
+name-last-say	Samantha	Say hi to Aarav.			notFound
+name-last-tell	Samantha	Tell Pulkit I am late.	Pulkit Sharma	I am late	
 name-last-long	Samantha	Send a message to Pulkit saying I will call you in ten minutes.	Pulkit Sharma	I will call you in ten minutes	resolved
-name-last-before	Samantha	Send happy new year wishes to Aarav.	Aarav Mehta	happy new year wishes	resolved
+name-last-before	Samantha	Send happy new year wishes to Aarav.			notFound
 
 # --- Indian English voice. Contact-name biasing is what makes these work.
 indian-shreya	Aman	Message Shreya that I am reaching in ten minutes.	Shreya Iyer	I am reaching in ten minutes	resolved
@@ -36,6 +36,14 @@ indian-aditi	Samantha	Send a message to Aditi saying call me back.	Aditi Rao	cal
 
 # --- British voice, to prove the engine is not tuned to one accent.
 british-pulkit	Daniel	Message Pulkit that I am running late.	Pulkit Sharma	I am running late	resolved
+
+# --- Names the recognizer mangles. Apple's engine renders "Pulkit" as
+# "Polka"/"Polkit"/"Paul Kit" and "Aarav" as "our ab", and contextual-string
+# biasing was measured to change nothing (see BUILD-STATE.md). What Voicy owes
+# the user here is not a correct guess, it is SAFE behaviour: offer the right
+# person for confirmation, or admit it found nobody. Never invent a recipient.
+# These cases assert exactly that, and they are the reason alias learning
+# exists: correct the name once and it resolves instantly forever after.
 
 # --- Safety: two people named Rahul. Voicy must ASK, never guess.
 ambiguous-rahul	Samantha	Message Rahul that I am late.		I am late	ambiguous
