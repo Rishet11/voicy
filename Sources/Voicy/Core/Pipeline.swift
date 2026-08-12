@@ -149,6 +149,13 @@ final class Pipeline {
             guard let self else { return }
             await TranscriberWarmup.warm(self.transcriber)
         }
+
+        // Same idea for the audio graph. A cold AVAudioEngine start costs ~296 ms
+        // against a 100 ms budget, and that delay does not just look slow, it
+        // eats the beginning of the sentence. Prewarming allocates the graph
+        // without opening the microphone, so the recording indicator stays off
+        // until the user actually holds the key.
+        recorder.prewarm()
     }
 
     // MARK: - Hotkeys (progressive permission)

@@ -554,16 +554,28 @@ struct TestHarness {
         print("  second transcribe (1 s) \(fmt(secondMs)) ms  <- what the user feels")
         print("  warm-up saves           \(fmt(max(0, firstMs - secondMs))) ms on the first utterance")
 
-        // Microphone engine start, the 100 ms budget item. Needs mic permission;
-        // reports honestly when it is unavailable.
-        let recorder = MicrophoneRecorder()
+        // Microphone engine start, the 100 ms budget item. Measured twice: cold,
+        // and after `prewarm()` has run the way the shipped app does at launch.
+        // Needs mic permission; reports honestly when it is unavailable.
         do {
-            let micStart = Date()
-            try recorder.start()
-            let ms = Date().timeIntervalSince(micStart) * 1000
-            _ = recorder.stop()
-            print("  mic engine start        \(fmt(ms)) ms  (budget 100 ms)"
-                  + (ms > 100 ? "  OVER BUDGET" : ""))
+            let cold = MicrophoneRecorder()
+            let coldMicStart = Date()
+            try cold.start()
+            let coldMs = Date().timeIntervalSince(coldMicStart) * 1000
+            _ = cold.stop()
+
+            let warm = MicrophoneRecorder()
+            warm.prewarm()
+            let warmMicStart = Date()
+            try warm.start()
+            let warmMs = Date().timeIntervalSince(warmMicStart) * 1000
+            _ = warm.stop()
+
+            print("  mic start, cold         \(fmt(coldMs)) ms  (budget 100 ms)"
+                  + (coldMs > 100 ? "  OVER BUDGET" : ""))
+            print("  mic start, prewarmed    \(fmt(warmMs)) ms  (budget 100 ms)"
+                  + (warmMs > 100 ? "  OVER BUDGET" : ""))
+            print("  prewarm saves           \(fmt(max(0, coldMs - warmMs))) ms at key-down")
         } catch {
             print("  mic engine start        unavailable: \(error)")
         }

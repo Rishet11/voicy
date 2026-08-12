@@ -22,20 +22,56 @@ final class MicrophoneRecorder {
 
     var isRunning: Bool { engine.isRunning }
 
+    /// Cached hardware input format, resolved once by `prewarm()`.
+    private var cachedInputFormat: AVAudioFormat?
+
+    /// Pays the audio graph's setup cost at launch instead of at key-down.
+    ///
+    /// Measured with `--test-latency`: a cold `start()` takes ~296 ms against a
+    /// 100 ms budget. Most of that is first-touch work — bringing up the audio
+    /// HAL via `inputNode`, resolving the hardware format, and building the
+    /// sample-rate converter — none of which depends on the user pressing
+    /// anything. Doing it at launch means key-down only has to install a tap and
+    /// call `start()`.
+    ///
+    /// This does NOT open the microphone. `AVAudioEngine.prepare()` allocates
+    /// resources without running the graph, so the macOS recording indicator
+    /// stays off until the user actually holds the key. Keeping the engine
+    /// *running* would be faster still and is deliberately not done: a permanent
+    /// orange dot is not a trade this app is willing to make.
+    func prewarm() {
+        guard cachedInputFormat == nil else { return }
+        let input = engine.inputNode
+        let inputFormat = input.inputFormat(forBus: 0)
+        guard inputFormat.sampleRate > 0 else { return }  // no input device
+        cachedInputFormat = inputFormat
+
+        let fmt = Self.analysisFormat
+        targetFormat = fmt
+        converter = AVAudioConverter(from: inputFormat, to: fmt)
+        engine.prepare()
+    }
+
+    /// 16 kHz mono Float32, the format the transcriber expects.
+    private static let analysisFormat = AVAudioFormat(
+        commonFormat: .pcmFormatFloat32,
+        sampleRate: 16_000,
+        channels: 1,
+        interleaved: false
+    )!
+
     /// Starts capturing. Returns the input sample rate actually used.
     func start() throws {
         let input = engine.inputNode
-        let inputFormat = input.inputFormat(forBus: 0)
-        print("[voicy] mic input format: \(inputFormat)")
+        let inputFormat = cachedInputFormat ?? input.inputFormat(forBus: 0)
 
-        let fmt = AVAudioFormat(
-            commonFormat: .pcmFormatFloat32,
-            sampleRate: 16_000,
-            channels: 1,
-            interleaved: false
-        )!
-        targetFormat = fmt
-        converter = AVAudioConverter(from: inputFormat, to: fmt)
+        let fmt = Self.analysisFormat
+        // Rebuild the converter only if prewarm did not, or the device changed.
+        if targetFormat == nil || converter == nil || cachedInputFormat != inputFormat {
+            targetFormat = fmt
+            converter = AVAudioConverter(from: inputFormat, to: fmt)
+            cachedInputFormat = inputFormat
+        }
 
         pcmSamples = []
 
