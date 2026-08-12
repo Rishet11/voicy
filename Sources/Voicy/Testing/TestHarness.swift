@@ -82,7 +82,7 @@ struct TestHarness {
         var failures = 0
 
         if has("--unit-tests") {
-            failures += runUnitTests()
+            failures += await runUnitTests()
         }
 
         if let path = value(for: "--test-audio") {
@@ -511,7 +511,7 @@ struct TestHarness {
 
     // MARK: - Unit tests (no audio, no permissions)
 
-    private func runUnitTests() -> Int {
+    private func runUnitTests() async -> Int {
         print("=== unit tests ===")
         var failed = 0
 
@@ -526,6 +526,10 @@ struct TestHarness {
         let send = runSendTests()
         print("send:          \(send.passed) passed, \(send.failed) failed")
         failed += send.failed
+
+        let sendPath = await runSendPathTests()
+        print("send path:     \(sendPath.passed) passed, \(sendPath.failed) failed")
+        failed += sendPath.failed
 
         return failed
     }

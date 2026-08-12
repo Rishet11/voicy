@@ -277,3 +277,63 @@ func runSendTests() -> (passed: Int, failed: Int) {
 
     return t.result
 }
+
+// MARK: - Send path (the most dangerous code in the app)
+//
+// Every case here runs with `dryRun: true`, which opens nothing and posts
+// nothing (see WhatsAppSender step 2). What is being tested is the DECISION:
+// does the kill-switch fire before anything happens, and does a malformed
+// target fail rather than proceed.
+@MainActor
+func runSendPathTests() async -> (passed: Int, failed: Int) {
+    var t = TestRun("send-path")
+
+    let owner = FixtureContacts.ownerE164
+
+    // A normal dry run reaches the dry-run branch and stops there.
+    let open = WhatsAppSender(blocklist: Blocklist(state: .loaded([])))
+    let normal = await open.send(phone: owner, body: "I am late",
+                                 contactName: "Pulkit Sharma", dryRun: true)
+    t.equal(normal, .dryRun, "clean dry run reports dryRun")
+
+    // Blocklisted by NUMBER: refused before the deep link is even built.
+    let byNumber = WhatsAppSender(blocklist: Blocklist(state: .loaded([owner])))
+    let blockedNumber = await byNumber.send(phone: owner, body: "I am late",
+                                            contactName: "Pulkit Sharma", dryRun: true)
+    t.equal(blockedNumber, .blocked(contact: owner), "blocklisted number is refused")
+
+    // Blocklisted by NAME: same refusal via the other identifier.
+    let byName = WhatsAppSender(blocklist: Blocklist(state: .loaded(["Pulkit Sharma"])))
+    let blockedName = await byName.send(phone: owner, body: "I am late",
+                                        contactName: "Pulkit Sharma", dryRun: true)
+    t.equal(blockedName, .blocked(contact: "Pulkit Sharma"), "blocklisted name is refused")
+
+    // Fail closed: an unreadable blocklist must refuse EVERY send, including a
+    // dry run. A corrupt kill-switch that silently allows sends is the worst
+    // possible failure mode, because the user believes they are protected.
+    let broken = WhatsAppSender(blocklist: Blocklist(state: .corrupt))
+    let brokenOutcome = await broken.send(phone: owner, body: "I am late",
+                                          contactName: "Pulkit Sharma", dryRun: true)
+    if case .failed = brokenOutcome {
+        t.check(true, "corrupt blocklist refuses even a dry run")
+    } else {
+        t.check(false, "corrupt blocklist must refuse", "got \(brokenOutcome)")
+    }
+
+    // A target with no digits cannot produce a deep link, and must fail rather
+    // than proceed to open anything.
+    let noDigits = await open.send(phone: "not a number", body: "I am late",
+                                   contactName: "Nobody", dryRun: true)
+    if case .failed = noDigits {
+        t.check(true, "unusable phone number fails instead of proceeding")
+    } else {
+        t.check(false, "unusable phone number must fail", "got \(noDigits)")
+    }
+
+    // An empty body is a legal send: the deep link just opens the chat.
+    let emptyBody = await open.send(phone: owner, body: "",
+                                    contactName: "Pulkit Sharma", dryRun: true)
+    t.equal(emptyBody, .dryRun, "empty body still reaches dry run")
+
+    return t.result
+}
