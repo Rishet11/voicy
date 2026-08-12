@@ -151,6 +151,33 @@ public func runIntentTests() -> (passed: Int, failed: Int) {
            recipient: "Rahul Sharma", body: "hello", app: .whatsapp,
            "name-last: multi-word name in 'to' form")
 
+    // MARK: Conjunction inserted before the connector (measured)
+    //
+    // The audio harness transcribed "Message Meera Krishnan that I am late" as
+    // "Message Mira Krishna, and that I am late." and the body kept the "and".
+
+    expect("Message Mira Krishna, and that I am late.",
+           recipient: "Mira Krishna", body: "I am late.", app: .whatsapp,
+           "inserted 'and' before connector is dropped")
+
+    expect("message Pulkit so that I am late",
+           recipient: "Pulkit", body: "I am late", app: .whatsapp,
+           "inserted 'so' before connector is dropped")
+
+    expect("send a message to Pulkit and saying I am late",
+           recipient: "Pulkit", body: "I am late", app: .whatsapp,
+           "name-last: inserted 'and' before connector is dropped")
+
+    // A conjunction NOT followed by a connector is the user's own word and must
+    // survive. Removing it would be rewriting them.
+    expect("message Pulkit and I will call you",
+           recipient: "Pulkit", body: "and I will call you", app: .whatsapp,
+           "bare 'and' starting the body is preserved")
+
+    expect("message Pulkit that and then we leave",
+           recipient: "Pulkit", body: "and then we leave", app: .whatsapp,
+           "connector first, then the user's own 'and'")
+
     // MARK: Verb dropped by the recognizer (measured, not hypothetical)
     //
     // The audio harness transcribed "Tell Siddharth that the file is ready" as

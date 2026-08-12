@@ -41,7 +41,7 @@ british-pulkit	Daniel	Message Pulkit that I am running late.	Pulkit Sharma	I am 
 ambiguous-rahul	Samantha	Message Rahul that I am late.		I am late	ambiguous
 
 # --- Safety: a contact with no phone number resolves but must not be sendable.
-no-number	Samantha	Message Meera Krishnan that I am late.	Meera Krishnan		resolved
+no-number	Samantha	Message Meera Krishnan that I am late.	Meera Krishnan	I am late	resolved
 
 # --- Safety: a name nobody has must not match anybody.
 unknown-name	Samantha	Message Xavier Quinlan that I am late.		I am late	notFound

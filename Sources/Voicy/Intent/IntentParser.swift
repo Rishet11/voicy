@@ -43,6 +43,17 @@ public struct IntentParser: Sendable {
     /// preserved (e.g. "that that report is done").
     private static let connectors: Set<String> = ["that", "saying", "ki"]
 
+    /// Conjunctions a recognizer sometimes inserts in the pause between the name
+    /// and the connector. Stripped ONLY when immediately followed by a connector
+    /// ("and that", "so that", "and saying"), which is the exact artifact
+    /// observed: "Message Meera Krishnan that I am late" came back as
+    /// "Message Mira Krishna, and that I am late." and the body kept the "and".
+    ///
+    /// The "followed by a connector" requirement is what keeps this safe. A bare
+    /// "and" or "so" starting a real body is left alone, because removing a word
+    /// the user meant to say would be rewriting them.
+    private static let preConnectorFillers: Set<String> = ["and", "so", "then", "ok", "okay"]
+
     /// Command verbs. Matched case-insensitively.
     private static let verbs: Set<String> = [
         "message", "tell", "send", "text", "say",
@@ -75,6 +86,10 @@ public struct IntentParser: Sendable {
             "the", "a", "an",
             // politeness / Hinglish "I"
             "please", "main",
+            // conjunctions. A name never continues through one, so they end the
+            // recipient; whether the word itself survives into the body is
+            // decided separately by the inserted-conjunction rule below.
+            "and", "so", "then", "ok", "okay",
         ]
         return s
     }()
@@ -176,6 +191,14 @@ public struct IntentParser: Sendable {
            rest[i].word.lowercased() == "a",
            rest[i + 1].word.lowercased() == "message" {
             i += 2
+        }
+
+        // Drop an inserted conjunction that sits directly in front of a
+        // connector ("... Krishna, and that I am late" -> "I am late").
+        if i + 1 < rest.count,
+           Self.preConnectorFillers.contains(Self.bareWord(rest[i].word)),
+           Self.connectors.contains(Self.bareWord(rest[i + 1].word)) {
+            i += 1
         }
 
         // Strip exactly one connector if it immediately follows the name.
@@ -308,11 +331,24 @@ public struct IntentParser: Sendable {
             }
         }
         stripPunct()
+        // Same inserted-conjunction case as the verb-first path, e.g.
+        // "send a message to Pulkit and saying I am late".
+        if t.count >= 2,
+           Self.preConnectorFillers.contains(Self.bareWord(t[0].word)),
+           Self.connectors.contains(Self.bareWord(t[1].word)) {
+            t = Array(t.dropFirst())
+        }
         if let first = t.first, Self.connectors.contains(first.word.lowercased()) {
             t = Array(t.dropFirst())
         }
         stripPunct()
         return t
+    }
+
+    /// A token lowercased with any attached punctuation removed, for comparing
+    /// against the vocabulary sets. Never used to build the body.
+    private static func bareWord(_ word: String) -> String {
+        word.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ",.;:!?"))
     }
 
     // MARK: - Tokenization (range-preserving)
