@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleExecutable</key>
+	<string>Voicy</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.voicy.app</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>Voicy</string>
+	<key>CFBundleDisplayName</key>
+	<string>Voicy</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>26.0</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.productivity</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Voicy records your voice while you hold the push-to-talk key so it can transcribe it on-device.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Voicy uses on-device speech recognition to transcribe your voice notes. Audio never leaves your Mac.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>Voicy reads your contacts so it can match the name you speak to the right WhatsApp number. Contacts never leave your Mac.</string>
+	<key>NSHumanReadableCopyright</key>
+	<string></string>
+</dict>
+</plist>
