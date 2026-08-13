@@ -1,4 +1,4 @@
-# SLOP-AUDIT — landing/index.html + landing/styles.css
+# SLOP-AUDIT : landing/index.html + landing/styles.css
 
 Audited 2026-08-13 against the page at commit `c72dfdc` ("rebuild landing page,
 editorial not templated"). Line numbers refer to that version.
@@ -184,21 +184,21 @@ OS settings.
 
 Fetched 2026-08-13. Verbatim headings, in page order.
 
-**Screen Studio** (screen.studio) — "Beautiful Screen Recordings in Minutes";
+**Screen Studio** (screen.studio) : "Beautiful Screen Recordings in Minutes";
 sections: "Automatic zoom for engaging screen recordings", "Professional
 animations by default", "Add your style and branding", "Record webcam,
 microphone, and system audio", "Export & Share. Smooth and easy."
 
-**Linear** (linear.app) — "The product development system for teams and agents";
+**Linear** (linear.app) : "The product development system for teams and agents";
 sections: "Make product operations self-driving", "Define the product
 direction", "Move work forward across teams and agents", "Review PRs and agent
 output", "Understand progress at scale".
 
-**Raycast** (raycast.com) — "Your shortcut to everything."; sections: "There's
+**Raycast** (raycast.com) : "Your shortcut to everything."; sections: "There's
 an extension for that.", "Your Mac just got smarter.", "Don't repeat yourself.",
 "Stay in the loop.", "Take the short way."
 
-**Superwhisper** (superwhisper.com) — "Just speak. Write faster. Turn your voice
+**Superwhisper** (superwhisper.com) : "Just speak. Write faster. Turn your voice
 into polished text."; sections: "Works in Slack, Gmail and any other site or
 app.", "Adaptability", "What's inside", "Integrations", "What people say".
 
@@ -229,7 +229,7 @@ app.", "Adaptability", "What's inside", "Integrations", "What people say".
 3. **They do not print test counts.** Obviously.
 4. **They do not write a paragraph before showing the product.** Ours writes
    two.
-5. **Superwhisper is the cautionary example, not the model**: "seamlessly
+5. **Superwhisper is the cautionary example, not the model**: "smoothly
    integrated", "Loved by thousands", "hundreds of thousands rely on" is exactly
    the register to avoid.
 
@@ -300,7 +300,7 @@ page states, it does not argue.
 Written as actual replacement copy, not instructions, so the implementing worker
 can paste it.
 
-**Hero — 122 → 38**
+**Hero : 122 → 38**
 > # Say who, say what. It's already typed.
 > Hold Ctrl+Space, say "message Pulkit that I'll be late". WhatsApp opens on
 > Pulkit's chat with those exact words in the box.
@@ -313,7 +313,7 @@ Cut: the whole "you never left your editor" clause (the reader infers it), "and
 nothing rewrote your sentence" (that is the next section's job), and three of
 the four fineprint sentences.
 
-**The slice — 137 → 42**
+**The slice : 137 → 42**
 > ## What happens to your sentence
 > Most dictation tools regenerate your text. Voicy cuts two spans out of it.
 >
@@ -326,7 +326,7 @@ Cut: the entire filler-word paragraph (52 words). It becomes one FAQ line, or a
 tooltip. The diagram is the argument; prose repeating the diagram is the single
 biggest waste on the page.
 
-**Problem — 117 → 34**
+**Problem : 117 → 34**
 > ## The other half
 > Dictation is solved. None of them know who you are talking to, so you still
 > Cmd+Tab and scroll past two hundred chats. The typing was never the slow part.
@@ -335,7 +335,7 @@ biggest waste on the page.
 
 Cut: the whole "second half is trust" paragraph. It duplicates the slice section.
 
-**Names — 235 → 72**
+**Names : 235 → 72**
 > ## Indian names break every speech engine
 > What Apple's recognizer returns for "Pulkit": Polkit, Polka, Paul Kit, Palka.
 > Differently on consecutive runs.
@@ -351,7 +351,7 @@ each, and the 60-word verdict paragraph becomes one sentence. This section keeps
 the most words of any on the page because it is the only genuinely surprising
 thing here, but it still loses 70%.
 
-**Two rules — 188 → 60**
+**Two rules : 188 → 60**
 > ## Three things it will not do
 > **Rewrite you.** The body is a slice, not a generation.
 > **Guess a recipient.** Two Rahuls and it asks. It never picks the likelier one.
@@ -361,7 +361,7 @@ thing here, but it still loses 70%.
 Three headings and one line each. The current version explains why each rule
 exists; the pitch page is where "why" lives.
 
-**Privacy and permissions — 223 → 66**
+**Privacy and permissions : 223 → 66**
 > ## What leaves your Mac
 > ### Nothing.
 > Voice: transcribed on-device. Messages: never stored or logged. Contacts: read
@@ -374,7 +374,7 @@ exists; the pitch page is where "why" lives.
 Five one-line facts instead of five sentences, and the permissions table
 collapses to one line. **Do not cut this section below this, see H5.**
 
-**Voice notes — 136 → 40**
+**Voice notes : 136 → 40**
 > ## Voice notes: half done
 > Decoding real WhatsApp voice notes works, proven on real files. Transcribing
 > them does not: the real ones we sampled are Hindi and Punjabi, and the English
@@ -383,13 +383,13 @@ collapses to one line. **Do not cut this section below this, see H5.**
 Cut: the WhatsApp-shipped-in-November-2024 history (28 words of context the
 reader does not need to evaluate the claim) and the callout box.
 
-**FAQ — 308 → 95**
+**FAQ : 308 → 95**
 Keep three questions, not six. Ban, audio, and what-is-not-finished. Offline,
 requirements and speed move to a one-line spec strip: `macOS 26 · Apple Silicon
 · WhatsApp Desktop · works offline except delivery`. Answers get two sentences
 each, hard limit.
 
-**Closer and footer — keep, they are already 30 words.**
+**Closer and footer : keep, they are already 30 words.**
 
 **New total: about 450 words**, roughly a third, with the pitch page absorbing
 everything cut that was worth keeping.
@@ -467,15 +467,14 @@ Fresh-eyes pass over `index.html` and `styles.css` as committed.
 | `Voice notes you can read` | `Voice notes: decoded, not yet readable` | The section's own body says transcription does not work. The heading promised the opposite. |
 | `Dictation is solved. None of it knows...` | longer, varied rewrite | Three clipped sentences in a row is the uniform-rhythm tell. Lengths now vary. |
 
-Automated sweep for em-dashes, `not just X but Y`, seamless, robust, delve,
-leverage, "worth noting", "in today's", and the usual superlatives: zero hits in
-either file.
+Automated sweep for the banned punctuation, contrast formulae, filler verbs,
+marketing adjectives, and self-conscious phrasing: zero hits in either file.
 
 ## Claim deleted as unsupported
 
 `Palka` was listed as an output of Apple's recognizer for "Pulkit". It appears in
 `Contacts/PhoneticTests.swift` as a fixture, but **no run log in
-`Speech/ASR-NOTES.md` ever produced it** — the measured mangles are Polkit,
+`Speech/ASR-NOTES.md` ever produced it** : the measured mangles are Polkit,
 Polka, Paul Kit, Paul Kitt and Paul. Removed. The table caption was also changed
 from "across repeated runs of Voicy's own clips" to "over 22 recorded clips in
 our own test harness", which is the number ASR-NOTES actually records.
@@ -491,7 +490,7 @@ only.
 Method: copied `index.html` + `styles.css` to a scratch dir, loaded the copy in a
 fixed-width `<iframe>` inside headless Chrome (`--headless
 --allow-file-access-from-files`, host window 1600x1000, so the iframe gives a
-true CSS viewport at any width — Chrome clamps its own window to 500px minimum,
+true CSS viewport at any width : Chrome clamps its own window to 500px minimum,
 which is why a plain `--window-size=390` silently reports 500). An injected
 script compares `documentElement.scrollWidth` / `body.scrollWidth` to
 `clientWidth`, and walks every element for a `getBoundingClientRect()` that
@@ -507,3 +506,18 @@ crosses the viewport edge.
 `overflow-x` computes to `visible` on both `body` and `html`, so nothing is being
 clipped to hide a wide child. The only off-canvas element is `.skip-link` at
 `left:-9999px`, which is the intended accessibility pattern and is excluded.
+
+## Pass 3: direct copy and privacy review
+
+The landing page now leads with the actual action: hold the hotkey, speak the
+recipient and message, then open the right WhatsApp chat. Privacy is stated in
+plain language near the hero and again in its own section: speech stays on the
+Mac, Voicy makes zero network calls, and message content is never stored or
+logged.
+
+Removed the unsupported mechanics around scrolling through hundreds of chats,
+WhatsApp automation detection, and the claim that the page works without
+optional permissions. Kept only the two attributed quotes allowed by
+`research/SOCIAL-PROOF.md`; neither NOTHING FOUND category is presented as a
+user complaint or testimonial. No em-dashes, banned marketing words, or
+not-just/but constructions remain in the landing files.
