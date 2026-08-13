@@ -1,7 +1,9 @@
 import AppKit
 import AVFoundation
 import Carbon
+import Contacts
 import Foundation
+import Speech
 
 // MARK: - Pipeline (integration worker)
 //
@@ -123,6 +125,7 @@ final class Pipeline {
     private var liveSession: AnyObject?
     private var liveStart: Task<Void, Never>?
     private var pendingSpeechChunks: [[Float]] = []
+    private var transcriptionInFlight = false
 
     init() {
         recorder.onSamples = { [weak self] samples in
@@ -191,7 +194,7 @@ final class Pipeline {
         if carbon.register(modifiers: OptionBits(controlKey)) {
             print("[voicy] hotkey: Ctrl+Space via Carbon (no permission required)")
         } else {
-            print("[voicy] ERROR: could not register Ctrl+Space hotkey")
+            present(failure: .hotkeyUnavailable)
         }
         carbonHotkey = carbon
 
@@ -214,7 +217,30 @@ final class Pipeline {
     // MARK: - Recording
 
     private func startRecording() {
-        guard !recorder.isRunning else { return }
+        guard !recorder.isRunning else {
+            present(failure: .recordingAlreadyActive)
+            return
+        }
+        guard !transcriptionInFlight else {
+            present(failure: .transcriptionInProgress)
+            return
+        }
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .denied, .restricted:
+            present(failure: .microphonePermissionDenied)
+            return
+        default: break
+        }
+        switch SFSpeechRecognizer.authorizationStatus() {
+        case .denied, .restricted:
+            present(failure: .speechRecognitionPermissionDenied)
+            return
+        default: break
+        }
+        guard CNContactStore.authorizationStatus(for: .contacts) == .authorized else {
+            present(failure: .contactsPermissionDenied)
+            return
+        }
         let t0 = Date()
         pendingSpeechChunks = []
         if #available(macOS 26.0, *) {
@@ -239,7 +265,7 @@ final class Pipeline {
             let ms = Date().timeIntervalSince(t0) * 1000
             print("[voicy] recording: started in \(String(format: "%.1f", ms)) ms")
         } catch {
-            print("[voicy] ERROR: could not start mic: \(error)")
+            present(failure: .microphoneStartFailed)
             recordingIndicator.hide()
             stopLevelMeter()
         }
@@ -251,11 +277,29 @@ final class Pipeline {
         let pcm = recorder.stop()
         recordingIndicator.hide()
         guard !pcm.isEmpty else {
-            print("[voicy] capture: empty; ignoring")
+            if #available(macOS 26.0, *), let session = liveSession as? LiveTranscriptionSession {
+                session.cancel()
+            }
+            liveSession = nil
+            liveStart = nil
+            present(failure: .noSpeechDetected)
+            return
+        }
+        var energy: Float = 0
+        for sample in pcm { energy += sample * sample }
+        let rms = (energy / Float(pcm.count)).squareRoot()
+        guard rms >= 0.001 else {
+            if #available(macOS 26.0, *), let session = liveSession as? LiveTranscriptionSession {
+                session.cancel()
+            }
+            liveSession = nil
+            liveStart = nil
+            present(failure: .noSpeechDetected)
             return
         }
         print("[voicy] capture: \(pcm.count) samples (\(String(format: "%.2f", Double(pcm.count) / 16_000)) s)")
         if #available(macOS 26.0, *), let session = liveSession as? LiveTranscriptionSession, let liveStart {
+            transcriptionInFlight = true
             self.liveSession = nil
             self.liveStart = nil
             Task { @MainActor [weak self] in
@@ -265,10 +309,15 @@ final class Pipeline {
                 for chunk in chunks { session.append(chunk) }
                 do {
                     let final = try await session.finish()
+                    self?.transcriptionInFlight = false
                     self?.present(transcript: final.best, transcribeStart: Date())
-                } catch { print("[voicy] streaming: finish failed") }
+                } catch {
+                    self?.transcriptionInFlight = false
+                    self?.present(failure: .transcriptionFailed)
+                }
             }
         } else {
+            transcriptionInFlight = true
             transcribe(pcm)
         }
     }
@@ -290,9 +339,11 @@ final class Pipeline {
                 // To inspect real transcripts, use the audio-injection harness
                 // (`--test-audio`), which runs on synthetic audio by design.
                 print("[voicy] transcription: \(String(format: "%.1f", ms)) ms, \(text.count) chars")
+                self.transcriptionInFlight = false
                 self.present(transcript: text, transcribeStart: transcribeStart)
             } catch {
-                print("[voicy] ERROR: transcription failed: \(error)")
+                self.transcriptionInFlight = false
+                self.present(failure: .transcriptionFailed)
             }
         }
     }
@@ -305,12 +356,8 @@ final class Pipeline {
         case .notParsed(let reason):
             let parseMs = Date().timeIntervalSince(parseStart) * 1000
             print("[voicy] intent: not parsed (\(reason)) in \(String(format: "%.1f", parseMs)) ms")
-            confirmPanel.show(
-                payload: VoicyConfirmPayload(recipients: [], message: "", transcript: transcript),
-                onSend: { _, _ in },
-                onCancel: { print("[voicy] confirm: cancelled (not found)") },
-                onDismiss: {}
-            )
+            _ = reason
+            present(failure: .noRecipient)
         case .parsed(let intent):
             // Recipient name is operational metadata and stays; the body never
             // appears in a log, only its length.
@@ -346,6 +393,7 @@ final class Pipeline {
         case .notFound:
             recipients = []
             print("[voicy] resolve: notFound")
+            present(failure: .noRecipient)
         }
 
         // Disfluency cleanup. Deletion only, and double-checked.
@@ -432,13 +480,17 @@ final class Pipeline {
     private func handleSend(recipient: VoicyRecipient, body: String,
                             app: MessagingApp, spoken: String, rememberAlias: Bool) {
         guard let e164 = recipient.phoneE164, !e164.isEmpty else {
-            print("[voicy] send: \(recipient.displayName) has no phone number; cannot send")
+            present(failure: .recipientHasNoPhoneNumber)
             return
         }
 
         // Only WhatsApp is wired. Do not fake a send to another app.
         if app != .whatsapp {
             print("[voicy] send: \(appName(app)) is not wired; not faking a send to \(recipient.displayName)")
+            return
+        }
+        guard NSWorkspace.shared.urlForApplication(withBundleIdentifier: "net.whatsapp.WhatsApp") != nil else {
+            present(failure: .whatsappNotInstalled)
             return
         }
 
@@ -461,15 +513,29 @@ final class Pipeline {
                     self.persistAlias(spoken: spoken, recipient: recipient)
                 }
                 self.tellUserToPressEnter()
+            case .sentVerified:
+                if rememberAlias {
+                    self.persistAlias(spoken: spoken, recipient: recipient)
+                }
             case .prefilledNotReady:
                 // The chat was opened but the composer was never observed
                 // ready. Same user-facing instruction, no alias learned: we
                 // cannot be sure the right chat is in front of them.
                 self.tellUserToPressEnter()
             case .blocked, .failed, .dryRun, .notAllowlisted:
+                self.present(failure: .whatsappUnavailable)
                 break
             }
         }
+    }
+
+    private func present(failure: PipelineFailure) {
+        print("[voicy] ERROR: \(failure.description)")
+        let alert = NSAlert()
+        alert.messageText = failure.description
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
     /// Permission-free, on-demand notice (after WhatsApp is open), not a

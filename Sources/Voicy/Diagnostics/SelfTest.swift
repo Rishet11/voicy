@@ -54,6 +54,7 @@ func runSelfTest() async {
     checkBundleIdentity()
     checkAliasStore()
     checkBlocklist()
+    _ = runPipelineFailureTests()
     print()
     print("=== end self-test ===")
 }
@@ -610,4 +611,3 @@ private func checkBlocklist() {
                    detail: "\(blocklist.count) blocked entrie(s) loaded from \(path) — auto-send to those is refused")
     }
 }
-
