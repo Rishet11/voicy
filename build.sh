@@ -34,6 +34,40 @@ trap cleanup_staging EXIT
 # --- Preflight. Fail here, with a fix, rather than mid-build with a stack trace.
 fail() { echo "ERROR: $1" >&2; shift; for line in "$@"; do echo "       $line" >&2; done; exit 1; }
 
+clear_bundle_xattrs() {
+  local bundle="$1"
+  xattr -cr "$bundle"
+  # Finder/fileprovider can reattach top-level metadata while the bundle is
+  # being moved on a managed volume. Remove those attributes explicitly too.
+  for attr in com.apple.FinderInfo 'com.apple.fileprovider.fpfs#P' com.apple.macl; do
+    xattr -d "$attr" "$bundle" 2>/dev/null || true
+  done
+}
+
+verify_bundle() {
+  local attempt
+  for attempt in 1 2 3 4 5; do
+    clear_bundle_xattrs "$APP_BUNDLE"
+    if codesign --verify --deep --strict "$APP_BUNDLE"; then
+      return 0
+    fi
+    sleep 0.1
+  done
+  return 1
+}
+
+sign_bundle() {
+  local attempt
+  for attempt in 1 2 3 4 5; do
+    clear_bundle_xattrs "$APP_BUNDLE"
+    if codesign --force --deep --sign "$SIGN_ID" "$APP_BUNDLE"; then
+      return 0
+    fi
+    sleep 0.1
+  done
+  return 1
+}
+
 [ "$(uname -s)" = "Darwin" ] || fail \
   "Voicy is a macOS app; this is $(uname -s)." \
   "Build it on a Mac running macOS 14 or newer."
@@ -156,23 +190,23 @@ EOF
 fi
 
 echo "==> Codesigning with stable identity: $SIGN_ID"
-codesign --force --deep --sign "$SIGN_ID" "$STAGED_BUNDLE"
+# Move the unsigned bundle into its final location before signing. Desktop-
+# managed dist directories can carry Finder metadata, so clear it before
+# codesign creates the final signature.
+mkdir -p "$DIST_DIR"
+mv "$STAGED_BUNDLE" "$APP_BUNDLE"
+clear_bundle_xattrs "$APP_BUNDLE"
+
+sign_bundle || fail \
+  "the assembled bundle could not be signed at its final path." \
+  "Remove dist/ and rebuild: rm -rf dist && ./build.sh"
 
 # codesign can itself leave Finder/provenance attributes on the bundle on
 # managed macOS volumes. Clear those signing-irrelevant attributes before the
 # strict verification step as well.
-xattr -cr "$STAGED_BUNDLE"
+clear_bundle_xattrs "$APP_BUNDLE"
 
-codesign --verify --strict "$STAGED_BUNDLE" || fail \
-  "the assembled bundle failed signature verification." \
-  "Remove dist/ and rebuild: rm -rf dist && ./build.sh"
-
-# Move only after signing. Desktop-managed dist directories can carry Finder
-# metadata that makes codesign reject an otherwise valid bundle.
-mkdir -p "$DIST_DIR"
-mv "$STAGED_BUNDLE" "$APP_BUNDLE"
-xattr -cr "$APP_BUNDLE"
-codesign --verify --strict "$APP_BUNDLE" || fail \
+verify_bundle || fail \
   "the final bundle failed signature verification after moving into dist." \
   "Remove dist/ and rebuild: rm -rf dist && ./build.sh"
 
