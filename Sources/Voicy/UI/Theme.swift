@@ -155,7 +155,7 @@ enum Theme {
 
     enum Motion {
         /// Snappy settle for the confirm card.
-        static let standard = Animation.spring(response: 0.32, dampingFraction: 0.80)
+        static let standard = Animation.spring(response: 0.22, dampingFraction: 0.82)
         /// Entrance for the recording indicator (feels like it "lifts" down).
         static let lift = Animation.spring(response: 0.38, dampingFraction: 0.82)
         /// Small element pops (wave bars).
@@ -187,23 +187,23 @@ enum Theme {
     // MARK: Layout — fixed sizes shared by the recording pill and confirm card.
 
     enum Layout {
-        // Recording pill
-        static let pillSize = CGSize(width: 176, height: 46)
-        static let pillTopInset: CGFloat = 20
-        static let waveformBarCount = 32
-        static let waveformBarWidth: CGFloat = 3
-        static let waveformBarSpacing: CGFloat = 2
-        static let waveformMinBarHeight: CGFloat = 4
-        static let waveformMaxBarHeight: CGFloat = 22
-        static let waveformFrameSize = CGSize(width: 108, height: 24)
-        static let dotSize: CGFloat = 10
-        static let dotHaloSize: CGFloat = 20
+        // Recording pill — a quiet OS affordance, not a window.
+        static let pillSize = CGSize(width: 120, height: 30)
+        static let pillTopInset: CGFloat = 10
+        static let waveformBarCount = 14
+        static let waveformBarWidth: CGFloat = 2
+        static let waveformBarSpacing: CGFloat = 1.5
+        static let waveformMinBarHeight: CGFloat = 3
+        static let waveformMaxBarHeight: CGFloat = 12
+        static let waveformFrameSize = CGSize(width: 52, height: 14)
+        static let dotSize: CGFloat = 6
+        static let dotHaloSize: CGFloat = 12
 
-        // Confirm card
-        static let cardWidth: CGFloat = 420
-        static let cardMinHeight: CGFloat = 120
-        static let avatarSize: CGFloat = 42
-        static let appIconBadgeSize: CGFloat = 44
+        // Confirm card — tight, dense, glance-and-confirm.
+        static let cardWidth: CGFloat = 300
+        static let cardMinHeight: CGFloat = 90
+        static let avatarSize: CGFloat = 26
+        static let appIconBadgeSize: CGFloat = 44 // unused post-minimalism pass; kept for source compat
     }
 
     // MARK: Shared surface shadow: a genuine drop + the "lit top edge" glass

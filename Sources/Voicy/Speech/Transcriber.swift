@@ -101,9 +101,33 @@ extension Transcriber {
 
 /// Builds the best transcription engine available on the running OS.
 enum TranscriberFactory {
-    static func make(locale: Locale = Locale(identifier: "en_US")) -> Transcriber {
+    /// The harness seam for locale A/B runs: `VOICY_TRANSCRIBER_LOCALE=en_IN`
+    /// makes `make()` build the engine for that locale without touching any
+    /// other code. Ships defaulting to en_US; production code never sets the
+    /// variable, so the default path is unchanged.
+    ///
+    /// `VOICY_ENGINE` selects the engine for accuracy measurement:
+    ///   (unset)       -> SpeechAnalyzerTranscriber (the shipped engine)
+    ///   legacy        -> legacy SFSpeechRecognizer, on-device
+    ///   legacy-lm     -> legacy SFSpeechRecognizer + customizedLanguageModel
+    ///                    built from the per-call hints
+    ///   dictation-lm  -> SpeechAnalyzer with DictationTranscriber +
+    ///                    ContentHint.customizedLanguage, LM built from hints
+    static func make(
+        locale: Locale = Locale(identifier: ProcessInfo.processInfo.environment["VOICY_TRANSCRIBER_LOCALE"] ?? "en_US")
+    ) -> Transcriber {
+        let engine = ProcessInfo.processInfo.environment["VOICY_ENGINE"] ?? ""
         if #available(macOS 26.0, *) {
-            return SpeechAnalyzerTranscriber(locale: locale)
+            switch engine {
+            case "legacy":
+                return LegacySpeechTranscriber(locale: locale)
+            case "legacy-lm":
+                return LegacySpeechTranscriber(locale: locale, useCustomLanguageModel: true)
+            case "dictation-lm":
+                return DictationLanguageModelTranscriber(locale: locale)
+            default:
+                return SpeechAnalyzerTranscriber(locale: locale)
+            }
         } else {
             return LegacySpeechTranscriber(locale: locale)
         }
@@ -145,6 +169,49 @@ enum TranscriberWarmup {
             print("[voicy] engine: warm-up skipped (\(error))")
         }
     }
+}
+
+/// Builds an `AVAudioPCMBuffer` in `format` from raw Float32 samples,
+/// converting when the target format differs from 16 kHz mono Float32.
+/// Shared by the SpeechAnalyzer-based engines.
+enum SpeechBufferFactory {
+    static func makeBuffer(from pcm: [Float], to format: AVAudioFormat) -> AVAudioPCMBuffer? {
+        let sourceFormat = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: 16_000,
+            channels: 1,
+            interleaved: false
+        )!
+
+        guard let source = AVAudioPCMBuffer(pcmFormat: sourceFormat, frameCapacity: AVAudioFrameCount(pcm.count)) else {
+            return nil
+        }
+        source.frameLength = AVAudioFrameCount(pcm.count)
+        pcm.withUnsafeBufferPointer { src in
+            source.floatChannelData![0].update(from: src.baseAddress!, count: pcm.count)
+        }
+
+        if format.sampleRate == sourceFormat.sampleRate
+            && format.channelCount == 1
+            && format.commonFormat == sourceFormat.commonFormat
+            && !format.isInterleaved {
+            return source
+        }
+
+        guard let out = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: source.frameCapacity) else { return nil }
+        let converter = AVAudioConverter(from: sourceFormat, to: format)
+        var error: NSError?
+        let status = converter?.convert(to: out, error: &error) { _, outStatus in
+            outStatus.pointee = .haveData
+            return source
+        }
+        guard status == .haveData || status == .inputRanDry else { return nil }
+        return out
+    }
+}
+
+enum AudioTranscribeFailure: Error {
+    case invalidAudio
 }
 
 /// Primary engine: the new macOS 26 Speech framework
@@ -200,8 +267,8 @@ final class SpeechAnalyzerTranscriber: Transcriber {
 
         try await analyzer.prepareToAnalyze(in: analysisFormat)
 
-        guard let buffer = makeBuffer(from: pcm, to: analysisFormat) else {
-            throw TranscribeFailure.invalidAudio
+        guard let buffer = SpeechBufferFactory.makeBuffer(from: pcm, to: analysisFormat) else {
+            throw AudioTranscribeFailure.invalidAudio
         }
 
         // Collect results as the analyzer runs, then feed and finalize.
@@ -227,45 +294,74 @@ final class SpeechAnalyzerTranscriber: Transcriber {
 
         return try await collector.value
     }
+}
 
-    /// Builds an `AVAudioPCMBuffer` in `format` from raw Float32 samples,
-    /// converting when the target format differs from 16 kHz mono Float32.
-    private func makeBuffer(from pcm: [Float], to format: AVAudioFormat) -> AVAudioPCMBuffer? {
-        let sourceFormat = AVAudioFormat(
-            commonFormat: .pcmFormatFloat32,
-            sampleRate: 16_000,
-            channels: 1,
-            interleaved: false
-        )!
+/// Engine variant for custom-language-model measurement: the macOS 26
+/// `SpeechAnalyzer` with a `DictationTranscriber` module whose content hints
+/// include `ContentHint.customizedLanguage`, carrying a compiled
+/// `SFSpeechLanguageModel` built from the per-call hints.
+///
+/// `SpeechTranscriber` (the shipped module) exposes NO language-model hook —
+/// verified in the macOS 26 SDK swiftinterface. `DictationTranscriber` is the
+/// only SpeechModule with `ContentHint.customizedLanguage(modelConfiguration:)`.
+/// This engine exists to measure whether that hook actually fixes names.
+@available(macOS 26.0, *)
+final class DictationLanguageModelTranscriber: Transcriber {
+    private let locale: Locale
 
-        guard let source = AVAudioPCMBuffer(pcmFormat: sourceFormat, frameCapacity: AVAudioFrameCount(pcm.count)) else {
-            return nil
-        }
-        source.frameLength = AVAudioFrameCount(pcm.count)
-        pcm.withUnsafeBufferPointer { src in
-            source.floatChannelData![0].update(from: src.baseAddress!, count: pcm.count)
-        }
-
-        if format.sampleRate == sourceFormat.sampleRate
-            && format.channelCount == 1
-            && format.commonFormat == sourceFormat.commonFormat
-            && !format.isInterleaved {
-            return source
-        }
-
-        guard let out = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: source.frameCapacity) else { return nil }
-        let converter = AVAudioConverter(from: sourceFormat, to: format)
-        var error: NSError?
-        let status = converter?.convert(to: out, error: &error) { _, outStatus in
-            outStatus.pointee = .haveData
-            return source
-        }
-        guard status == .haveData || status == .inputRanDry else { return nil }
-        return out
+    init(locale: Locale) {
+        self.locale = locale
     }
 
-    enum TranscribeFailure: Error {
-        case invalidAudio
+    func transcribe(pcm: [Float], hints: [String]) async throws -> String {
+        try await transcribeDetailed(pcm: pcm, hints: hints).best
+    }
+
+    func transcribeDetailed(pcm: [Float], hints: [String]) async throws -> TranscriptionResult {
+        var contentHints: Set<DictationTranscriber.ContentHint> = []
+        if !hints.isEmpty {
+            let configuration = try await CustomLanguageModelCache.shared
+                .configuration(for: hints, locale: locale)
+            contentHints.insert(.customizedLanguage(modelConfiguration: configuration))
+        }
+
+        // Options mirror SpeechTranscriber.Preset.transcription: punctuation on,
+        // no emoji/etiquette rewriting, no alternatives (alternatives doubled
+        // latency for no accuracy gain on the primary engine).
+        let module = DictationTranscriber(
+            locale: locale,
+            contentHints: contentHints,
+            transcriptionOptions: [.punctuation],
+            reportingOptions: [],
+            attributeOptions: []
+        )
+        let analyzer = SpeechAnalyzer(modules: [module])
+
+        let analysisFormat = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [module])
+            ?? AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false)!
+
+        try await analyzer.prepareToAnalyze(in: analysisFormat)
+
+        guard let buffer = SpeechBufferFactory.makeBuffer(from: pcm, to: analysisFormat) else {
+            throw AudioTranscribeFailure.invalidAudio
+        }
+
+        let collector = Task { () -> TranscriptionResult in
+            var segments: [TranscriptionSegment] = []
+            for try await result in module.results where result.isFinal {
+                segments.append(TranscriptionSegment(
+                    best: String(result.text.characters),
+                    alternatives: []
+                ))
+            }
+            return TranscriptionResult(segments: segments)
+        }
+
+        let input = AnalyzerInput(buffer: buffer)
+        _ = try await analyzer.analyzeSequence(SingleInputSequence(input: input))
+        try await analyzer.finalizeAndFinishThroughEndOfInput()
+
+        return try await collector.value
     }
 }
 

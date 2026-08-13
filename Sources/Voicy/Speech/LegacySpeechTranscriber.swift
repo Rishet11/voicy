@@ -10,12 +10,20 @@ final class LegacySpeechTranscriber: Transcriber {
     enum LegacyError: Error {
         case recognizerUnavailable
         case invalidAudio
+        case notAuthorized
     }
 
     private let locale: Locale
 
-    init(locale: Locale = Locale(identifier: "en_US")) {
+    /// When true, requests run with a compiled custom language model built from
+    /// the per-call hints (cached by `CustomLanguageModelCache`). This is the
+    /// documented `SFSpeechRecognitionRequest.customizedLanguageModel`
+    /// mechanism, the real replacement for the ineffective `contextualStrings`.
+    private let useCustomLanguageModel: Bool
+
+    init(locale: Locale = Locale(identifier: "en_US"), useCustomLanguageModel: Bool = false) {
         self.locale = locale
+        self.useCustomLanguageModel = useCustomLanguageModel
     }
 
     /// Requests (and waits for) speech recognition permission.
@@ -29,6 +37,10 @@ final class LegacySpeechTranscriber: Transcriber {
     }
 
     func transcribe(pcm: [Float], hints: [String]) async throws -> String {
+        guard await Self.requestAuthorization() else {
+            throw LegacyError.notAuthorized
+        }
+
         guard let recognizer = SFSpeechRecognizer(locale: locale), recognizer.isAvailable else {
             throw LegacyError.recognizerUnavailable
         }
@@ -38,6 +50,10 @@ final class LegacySpeechTranscriber: Transcriber {
         request.requiresOnDeviceRecognition = true
         if !hints.isEmpty {
             request.contextualStrings = hints
+            if useCustomLanguageModel {
+                request.customizedLanguageModel = try await CustomLanguageModelCache.shared
+                    .configuration(for: hints, locale: locale)
+            }
         }
 
         guard let buffer = makePCMBuffer(from: pcm) else {

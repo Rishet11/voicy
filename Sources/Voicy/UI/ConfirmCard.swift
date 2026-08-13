@@ -61,41 +61,17 @@ private struct Avatar: View {
     }
 }
 
-/// The destination app icon badge.
-private struct AppIconBadge: View {
-    @Environment(\.colorScheme) private var scheme
-    let symbol: String
-
-    var body: some View {
-        let palette = Theme.Colors.palette(scheme)
-        ZStack {
-            RoundedRectangle(cornerRadius: Theme.Corner.md, style: .continuous)
-                .fill(LinearGradient(colors: [palette.success.opacity(0.85), palette.success.opacity(0.55)],
-                                     startPoint: .topLeading, endPoint: .bottomTrailing))
-            Image(systemName: symbol)
-                .font(.system(size: 20, weight: .medium))
-                .foregroundStyle(.white)
-        }
-        .frame(width: Theme.Layout.appIconBadgeSize, height: Theme.Layout.appIconBadgeSize)
-        .accessibilityHidden(true)
-    }
-}
-
-/// A subtle shortcut hint chip shown at the bottom of the card.
-private struct ShortcutHint: View {
+/// A command-palette-style footer: small, monospace, unobtrusive key hints
+/// joined on one line. Decorative; the real hints live on the controls.
+private struct HintFooter: View {
     @Environment(\.colorScheme) private var scheme
     let text: String
-    let symbol: String
 
     var body: some View {
-        HStack(spacing: Theme.Space.xs) {
-            Image(systemName: symbol)
-                .font(.system(size: 10, weight: .semibold))
-            Text(text)
-                .font(Theme.Typography.caption(.medium))
-        }
-        .foregroundStyle(Theme.Colors.palette(scheme).textSecondary)
-        .accessibilityHidden(true) // shortcuts are also exposed as hints on the controls
+        Text(text)
+            .font(Theme.Typography.keycap(.medium))
+            .foregroundStyle(Theme.Colors.palette(scheme).textTertiary)
+            .accessibilityHidden(true)
     }
 }
 
@@ -135,9 +111,9 @@ struct ConfirmCardView: View {
             }
         }
         .frame(width: Theme.Layout.cardWidth)
-        .padding(Theme.Space.xl)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Theme.Corner.xl, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Theme.Corner.xl, style: .continuous)
+        .padding(Theme.Space.md)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Theme.Corner.lg, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Theme.Corner.lg, style: .continuous)
             .strokeBorder(palette.border, lineWidth: 1))
         .modifier(Theme.surfaceShadow(scheme))
         // Subtle scale + fade entrance, settling within ~300 ms. Falls back to a
@@ -159,61 +135,44 @@ struct ConfirmCardView: View {
 
     private func resolvedView(_ recipient: VoicyRecipient) -> some View {
         let palette = Theme.Colors.palette(scheme)
-        return VStack(alignment: .leading, spacing: Theme.Space.lg) {
-            HStack(alignment: .center, spacing: Theme.Space.md) {
-                AppIconBadge(symbol: recipient.appSymbol)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(recipient.displayName)
-                        .font(Theme.Typography.display())
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.6)
-                    Text(recipient.phoneDisplay)
-                        .font(Theme.Typography.callout(.medium))
-                        .foregroundStyle(palette.textSecondary)
-                        .lineLimit(1)
-                }
-                Spacer()
+        return VStack(alignment: .leading, spacing: Theme.Space.sm) {
+            // One line: avatar, name, masked number. No app icon badge, no
+            // section header — this is a glance-and-confirm surface.
+            HStack(spacing: Theme.Space.sm) {
+                Avatar(recipient: recipient)
+                Text(recipient.displayName)
+                    .font(Theme.Typography.headline())
+                    .lineLimit(1)
+                Text(recipient.phoneDisplay)
+                    .font(Theme.Typography.caption())
+                    .foregroundStyle(palette.textTertiary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(recipient.displayName), \(recipient.phoneDisplay), sending via \(recipient.appName)")
 
-            Divider().opacity(0.5)
-
             // Editable message body — the REAL words, verbatim, never trimmed,
-            // auto-capitalized or tidied. Generous line height and no truncation.
-            VStack(alignment: .leading, spacing: Theme.Space.xs + 2) {
-                Text("Message")
-                    .font(Theme.Typography.micro())
-                    .foregroundStyle(palette.textSecondary)
-                    .textCase(.uppercase)
-                    .accessibilityHidden(true)
-                TextField("Message", text: $model.message, axis: .vertical)
-                    .font(Theme.Typography.body())
-                    .lineSpacing(4)
-                    .lineLimit(1...8)
-                    .textFieldStyle(.plain)
-                    .padding(Theme.Space.sm + 2)
-                    .background(RoundedRectangle(cornerRadius: Theme.Corner.sm + 2, style: .continuous)
-                        .fill(palette.surface))
-                    .overlay(RoundedRectangle(cornerRadius: Theme.Corner.sm + 2, style: .continuous)
-                        .strokeBorder(palette.accent.opacity(bodyFocused ? 0.5 : 0.0), lineWidth: 1))
-                    .focused($bodyFocused)
-                    .accessibilityLabel("Message body, editable")
-                    .accessibilityValue(model.message)
-                    .accessibilityHint("Your exact words. Edit if needed, then press Return to send.")
-            }
+            // auto-capitalized or tidied. The largest, most important text on
+            // the card.
+            TextField("Message", text: $model.message, axis: .vertical)
+                .font(Theme.Typography.body(.medium))
+                .lineSpacing(3)
+                .lineLimit(1...6)
+                .textFieldStyle(.plain)
+                .focused($bodyFocused)
+                .accessibilityLabel("Message body, editable")
+                .accessibilityValue(model.message)
+                .accessibilityHint("Your exact words. Edit if needed, then press Return to send.")
 
-            HStack(spacing: Theme.Space.lg) {
-                ShortcutHint(text: "Enter  Send", symbol: "return")
-                ShortcutHint(text: "Esc  Cancel", symbol: "escape")
-                ShortcutHint(text: "⌘E  Edit", symbol: "pencil")
-                Spacer()
+            HStack(spacing: Theme.Space.sm) {
+                HintFooter(text: "↵ send  ·  esc cancel  ·  ⌘e edit")
+                Spacer(minLength: 0)
                 Button(action: onSend) {
-                    Label("Send", systemImage: "paperplane.fill")
-                        .font(Theme.Typography.callout(.semibold))
-                        .padding(.horizontal, Theme.Space.md + 2)
-                        .padding(.vertical, Theme.Space.sm - 1)
-                        .background(Capsule().fill(palette.accent))
+                    Image(systemName: "paperplane.fill")
+                        .font(.system(size: 11, weight: .semibold))
+                        .frame(width: 22, height: 22)
+                        .background(Circle().fill(palette.accent))
                         .foregroundStyle(.white)
                 }
                 .buttonStyle(.plain)
@@ -227,15 +186,11 @@ struct ConfirmCardView: View {
     // MARK: Ambiguous — "Which <name>?"
 
     private var ambiguousView: some View {
-        let palette = Theme.Colors.palette(scheme)
-        return VStack(alignment: .leading, spacing: Theme.Space.md + 2) {
+        return VStack(alignment: .leading, spacing: Theme.Space.sm) {
             Text("Which \(firstGivenName)?")
-                .font(Theme.Typography.title())
-            Text("I found a few matching contacts. Pick one.")
-                .font(Theme.Typography.callout())
-                .foregroundStyle(palette.textSecondary)
+                .font(Theme.Typography.headline())
 
-            VStack(spacing: Theme.Space.xs + 2) {
+            VStack(spacing: Theme.Space.xs) {
                 ForEach(Array(model.recipients.enumerated()), id: \.element.id) { index, recipient in
                     candidateRow(recipient, selected: index == model.selectedIndex)
                         .contentShape(Rectangle())
@@ -244,14 +199,7 @@ struct ConfirmCardView: View {
             }
             .accessibilityElement(children: .contain)
 
-            Divider().opacity(0.5)
-
-            HStack(spacing: Theme.Space.lg) {
-                ShortcutHint(text: "↑↓  Choose", symbol: "arrow.up.arrow.down")
-                ShortcutHint(text: "Enter  Pick", symbol: "return")
-                ShortcutHint(text: "Esc  Cancel", symbol: "escape")
-                Spacer()
-            }
+            HintFooter(text: "↑↓ choose  ·  ↵ pick  ·  esc cancel")
         }
     }
 
@@ -301,27 +249,16 @@ struct ConfirmCardView: View {
 
     private var notFoundView: some View {
         let palette = Theme.Colors.palette(scheme)
-        return VStack(alignment: .leading, spacing: Theme.Space.md + 2) {
-            HStack(spacing: Theme.Space.md) {
-                Image(systemName: "person.crop.circle.badge.questionmark")
-                    .font(.system(size: 24))
-                    .foregroundStyle(palette.textSecondary)
-                Text("Who did you mean?")
-                    .font(Theme.Typography.title())
-            }
-            Text("I didn't catch a contact in this. Here's exactly what I heard — pick who it should go to.")
-                .font(Theme.Typography.callout())
+        return VStack(alignment: .leading, spacing: Theme.Space.sm) {
+            Text("Who did you mean?")
+                .font(Theme.Typography.headline())
                 .foregroundStyle(palette.textSecondary)
 
             if let transcript = model.transcript, !transcript.isEmpty {
                 Text(transcript)
-                    .font(Theme.Typography.body())
-                    .lineSpacing(4)
+                    .font(Theme.Typography.body(.medium))
+                    .lineSpacing(3)
                     .textSelection(.enabled)
-                    .padding(Theme.Space.md)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: Theme.Corner.sm + 2, style: .continuous)
-                        .fill(palette.surface))
                     .accessibilityLabel("What I heard: \(transcript)")
             } else {
                 Text("No transcript available.")
@@ -329,12 +266,7 @@ struct ConfirmCardView: View {
                     .foregroundStyle(palette.textSecondary)
             }
 
-            Divider().opacity(0.5)
-
-            HStack(spacing: Theme.Space.lg) {
-                ShortcutHint(text: "Esc  Close", symbol: "escape")
-                Spacer()
-            }
+            HintFooter(text: "esc close")
         }
     }
 }
