@@ -120,7 +120,26 @@ public func runCleanupTests() -> (passed: Int, failed: Int) {
     t.check(!TranscriptCleaner.isDeletionOnly(original: "I will be there", cleaned: "I will be there there"),
             "adding an extra word (even a duplicate) is rejected")
 
+    // --- hesitation matcher is a pattern, not a buried word list
+    t.check(TranscriptCleaner.isFiller("um") && TranscriptCleaner.isFiller("uhh")
+            && TranscriptCleaner.isFiller("umm") && TranscriptCleaner.isFiller("hmm"),
+            "lengthened hesitation sounds still match the pattern")
+    t.check(!TranscriptCleaner.isFiller("am") && !TranscriptCleaner.isFiller("I")
+            && !TranscriptCleaner.isFiller("like") && !TranscriptCleaner.isFiller("matlab"),
+            "real short words are not hesitation sounds")
+    t.check(!LLMCleaner.instructions.localizedCaseInsensitiveContains("um, uh")
+            && !LLMCleaner.instructions.localizedCaseInsensitiveContains("erm")
+            && !LLMCleaner.instructions.localizedCaseInsensitiveContains("hmm"),
+            "LLM prompt names the class, not a filler vocabulary")
+
+    // --- shipping apply(): rules fallback still deletion-only when the model
+    // sits this one out (empty input is the cheap nil path).
+    t.equal(TranscriptCleaner.rulesOnly("um I will be there"), "I will be there",
+            "rules fallback still drops hesitation sounds")
+
     var (passed, failed) = t.result
+    // The on-device model cases are intentionally kept out of the fast unit
+    // suite. They belong to the opt-in live-LLM verification run.
 
     // These suites live in Cleanup/ and Contacts/ and are wired in here so that
     // `--unit-tests` runs them without Testing/TestHarness.swift needing to know
@@ -131,4 +150,153 @@ public func runCleanupTests() -> (passed: Int, failed: Int) {
     }
 
     return (passed, failed)
+}
+
+// MARK: - LLM pass + new disfluency cases
+
+private struct LLMCase {
+    let heard: String
+    let mustKeep: [String]
+    let mustDrop: [String]
+    let label: String
+}
+
+/// Discourse-marker cases the old filler list could not see, plus the
+/// load-bearing twins that must survive. `mustDrop` is asserted only when
+/// the model actually returned a deletion-only result.
+private let llmDisfluencyCases: [LLMCase] = [
+    LLMCase(heard: "I will like be there", mustKeep: ["I", "will", "be", "there"],
+            mustDrop: ["like"], label: "filler like dropped"),
+    LLMCase(heard: "you know I will be there", mustKeep: ["I", "will", "be", "there"],
+            mustDrop: ["you", "know"], label: "filler you know dropped"),
+    LLMCase(heard: "I mean I will be there", mustKeep: ["I", "will", "be", "there"],
+            mustDrop: ["mean"], label: "filler I mean dropped"),
+    LLMCase(heard: "basically I will be there", mustKeep: ["I", "will", "be", "there"],
+            mustDrop: ["basically"], label: "filler basically dropped"),
+    LLMCase(heard: "actually I will be there", mustKeep: ["I", "will", "be", "there"],
+            mustDrop: ["actually"], label: "filler actually dropped"),
+    LLMCase(heard: "matlab I will be there", mustKeep: ["I", "will", "be", "there"],
+            mustDrop: ["matlab"], label: "Hinglish hesitation matlab dropped"),
+    LLMCase(heard: "arre I will be there", mustKeep: ["I", "will", "be", "there"],
+            mustDrop: ["arre"], label: "Hinglish hesitation arre dropped"),
+    LLMCase(heard: "I like it", mustKeep: ["I", "like", "it"],
+            mustDrop: [], label: "load-bearing like kept"),
+    LLMCase(heard: "you know the answer", mustKeep: ["you", "know", "the", "answer"],
+            mustDrop: [], label: "load-bearing you know kept"),
+    LLMCase(heard: "I mean what I say", mustKeep: ["I", "mean", "what", "say"],
+            mustDrop: [], label: "load-bearing I mean kept"),
+    LLMCase(heard: "this is basically ready", mustKeep: ["this", "is", "basically", "ready"],
+            mustDrop: [], label: "load-bearing basically kept"),
+    LLMCase(heard: "I actually like it", mustKeep: ["I", "actually", "like", "it"],
+            mustDrop: [], label: "load-bearing actually and like kept"),
+]
+
+private func runLLMCleanupTests() -> (passed: Int, failed: Int) {
+    var t = TestRun("llm-cleanup")
+
+    // rulesOnly must still refuse to guess at discourse markers.
+    t.equal(TranscriptCleaner.rulesOnly("matlab I will be there"),
+            "matlab I will be there", "rules keep matlab")
+    t.equal(TranscriptCleaner.rulesOnly("arre I will be there"),
+            "arre I will be there", "rules keep arre")
+    t.equal(TranscriptCleaner.rulesOnly("I like it"), "I like it", "rules keep I like it")
+    t.equal(TranscriptCleaner.rulesOnly("you know the answer"),
+            "you know the answer", "rules keep you know the answer")
+
+    let applyEmpty = awaitForTests { await DisfluencyCleanup.apply("") }
+    t.equal(applyEmpty.text, "", "apply on empty is a no-op")
+    t.check(TranscriptCleaner.isDeletionOnly(original: "", cleaned: applyEmpty.text),
+            "apply on empty stays deletion-only")
+
+    print("  llm-cleanup: warming on-device model")
+    awaitForTests { await LLMCleaner().warm() }
+
+    var times: [Double] = []
+    var modelAnswers = 0
+
+    for c in llmDisfluencyCases {
+        let result = awaitForTests { await DisfluencyCleanup.apply(c.heard) }
+        times.append(result.elapsedMs)
+        t.check(TranscriptCleaner.isDeletionOnly(original: c.heard, cleaned: result.text),
+                "apply is deletion-only: \(c.label)")
+        t.check(!result.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                "apply does not empty: \(c.label)")
+        let got = bareWordsForTest(result.text)
+        for word in c.mustKeep {
+            t.check(got.contains(word.lowercased()),
+                    "kept '\(word)': \(c.label)",
+                    "got \(result.text)")
+        }
+        if result.source == .llm && result.text != c.heard {
+            modelAnswers += 1
+            for word in c.mustDrop {
+                t.check(!got.contains(word.lowercased()),
+                        "dropped '\(word)': \(c.label)",
+                        "got \(result.text)")
+            }
+        }
+    }
+
+    // Shipping path on the dictation corpus: rulesOnly vs the formatter's
+    // expected leftover words. This is the path Pipeline actually calls.
+    var improve = 0, unchanged = 0, regress = 0
+    for c in textCorpus {
+        let rules = TranscriptCleaner.rulesOnly(c.heard)
+        t.check(TranscriptCleaner.isDeletionOnly(original: c.heard, cleaned: rules),
+                "corpus rulesOnly is deletion-only: \(c.label)")
+        let content = Set(bareWordsForTest(c.heard)).intersection(Set(bareWordsForTest(c.want)))
+        let droppedContent = content.subtracting(Set(bareWordsForTest(rules)))
+        if !droppedContent.isEmpty {
+            regress += 1
+        } else if rules == c.heard {
+            unchanged += 1
+        } else {
+            improve += 1
+        }
+    }
+
+    times.sort()
+    let median = times.isEmpty ? 0 : times[times.count / 2]
+    let minT = times.first ?? 0
+    let maxT = times.last ?? 0
+    print("  llm-cleanup: rules on \(textCorpus.count) corpus rows -> "
+          + "\(improve) improved, \(unchanged) unchanged, \(regress) regress")
+    print("  llm-cleanup: \(modelAnswers)/\(llmDisfluencyCases.count) new cases the model actually edited")
+    print("  llm-cleanup: apply latency min \(String(format: "%.1f", minT)) ms  "
+          + "median \(String(format: "%.1f", median)) ms  "
+          + "max \(String(format: "%.1f", maxT)) ms  (n=\(times.count))")
+
+    t.check(regress == 0, "corpus has no content-word regressions",
+            "\(regress) row(s) dropped a word that both heard and want contain")
+
+    return t.result
+}
+
+private func bareWordsForTest(_ text: String) -> [String] {
+    text.split { $0.isWhitespace }.map {
+        $0.lowercased().trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+    }.filter { !$0.isEmpty }
+}
+
+/// Pump the current run loop so a MainActor-isolated `--unit-tests` call
+/// can wait on FoundationModels without deadlocking the main thread.
+private final class AwaitBox<Value>: @unchecked Sendable {
+    var value: Value?
+    var done = false
+}
+
+private func awaitForTests<T>(_ work: @escaping @Sendable () async -> T) -> T {
+    let box = AwaitBox<T>()
+    Task {
+        box.value = await work()
+        box.done = true
+    }
+    let deadline = Date().addingTimeInterval(180)
+    while !box.done {
+        if Date() > deadline {
+            fatalError("llm-cleanup test timed out waiting for the on-device model")
+        }
+        RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+    }
+    return box.value!
 }
