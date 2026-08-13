@@ -31,7 +31,8 @@ import Foundation
 @MainActor
 func runTestHarnessIfRequested() {
     let args = CommandLine.arguments
-    let modes = ["--test-audio", "--test-audio-suite", "--unit-tests", "--test-latency", "--test-wer"]
+    let modes = ["--test-audio", "--test-audio-suite", "--unit-tests", "--test-latency",
+                 "--test-wer", "--test-onset"]
     guard args.contains(where: { modes.contains($0) }) else { return }
 
     let done = CompletionFlag()
@@ -117,6 +118,10 @@ struct TestHarness {
 
         if let manifest = value(for: "--test-wer") {
             failures += await runWER(manifestPath: manifest)
+        }
+
+        if has("--test-onset") {
+            await runOnsetProbe()
         }
 
         if has("--test-latency") {
@@ -525,6 +530,79 @@ struct TestHarness {
         }
         print("suite: \(cases.count - failures)/\(cases.count) passed")
         return failures
+    }
+
+    // MARK: - Onset probe
+
+    /// Measures how much speech the app would lose at the start of an
+    /// utterance, which the augmented corpus showed is the single most
+    /// expensive degradation there is.
+    ///
+    /// Two separate delays add up, and they are reported separately because
+    /// they have different fixes:
+    ///
+    ///   start() call duration   how long the keypress handler is blocked
+    ///                           bringing up the audio graph.
+    ///   onset gap               keypress to the FIRST sample that actually
+    ///                           arrives. This is the audio that is gone. It
+    ///                           includes the call duration plus however long
+    ///                           the hardware takes to deliver its first buffer.
+    ///
+    /// Needs microphone permission, so run the SIGNED BUNDLE, not the bare
+    /// binary: dist/Voicy.app/Contents/MacOS/Voicy --test-onset
+    private func runOnsetProbe() async {
+        print("")
+        print("=== onset probe ===")
+        print("How much audio is lost between the keypress and the first captured sample.")
+
+        func measure(prewarmed: Bool, settle: Double) async -> (call: Double, gap: Double?, lost: Double?)? {
+            let recorder = MicrophoneRecorder()
+            if prewarmed { recorder.prewarm() }
+            let t0 = Date()
+            do { try recorder.start() } catch {
+                print("  mic unavailable: \(error)")
+                return nil
+            }
+            let callMs = Date().timeIntervalSince(t0) * 1000
+            // Wait for the hardware to deliver something. Polling rather than
+            // sleeping a fixed amount so a fast device is not reported slow.
+            let deadline = Date().addingTimeInterval(settle)
+            while recorder.onsetGapMs == nil, Date() < deadline {
+                await Task.yield()
+                try? await Task.sleep(nanoseconds: 1_000_000)
+            }
+            let gap = recorder.onsetGapMs
+            let lost = recorder.capturedGapMs
+            _ = recorder.stop()
+            return (callMs, gap, lost)
+        }
+
+        for (label, prewarmed) in [("cold", false), ("prewarmed", true)] {
+            var calls: [Double] = []
+            var gaps: [Double] = []
+            var losts: [Double] = []
+            for _ in 0..<5 {
+                guard let result = await measure(prewarmed: prewarmed, settle: 2.0) else { return }
+                calls.append(result.call)
+                if let gap = result.gap { gaps.append(gap) }
+                if let lost = result.lost { losts.append(lost) }
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
+            let gapText = gaps.isEmpty ? "never" : fmt(Percentile.of(gaps, 0.5)) + " ms"
+            let lostText = losts.isEmpty ? "unavailable" : fmt(Percentile.of(losts, 0.5)) + " ms"
+            print("  \(pad(label, 12)) start() \(pad(fmt(Percentile.of(calls, 0.5)) + " ms", 10)) "
+                  + "first callback \(pad(gapText, 10)) AUDIO LOST \(lostText)")
+            if gaps.count < calls.count {
+                print("    \(calls.count - gaps.count)/\(calls.count) attempts delivered NO audio within 2 s")
+            }
+        }
+
+        print("")
+        print("\"first callback\" is when the tap fired; most of it is the 4096-frame tap")
+        print("buffer filling up, and that audio is INSIDE the buffer, not missing.")
+        print("\"AUDIO LOST\" compares start() against the hardware timestamp of the first")
+        print("captured sample, so it is the audio that genuinely never existed anywhere.")
+        print("That is the only part a pre-roll buffer could recover.")
     }
 
     // MARK: - WER / CER evaluation

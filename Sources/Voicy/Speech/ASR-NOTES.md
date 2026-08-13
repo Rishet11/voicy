@@ -165,3 +165,72 @@ not a polish item, it is the largest single accuracy lever measured so far, and
 it costs nothing at inference time.
 
 Gain and speaking rate barely matter. Noise matters. Onset matters most.
+
+## Pre-roll: measured, and the answer is do NOT build it
+
+The augmented corpus showed `clipstart` (250 ms of onset removed) as the worst
+degradation of all, worse than 5 dB SNR noise. That made a pre-roll ring buffer
+look like the biggest cheap win available. Two measurements changed that
+conclusion.
+
+### 1. How much audio the app actually loses
+
+Added onset instrumentation to `MicrophoneRecorder` and a `--test-onset` probe.
+The first version of it measured the wrong thing and would have overstated the
+problem by 4x, so both numbers are reported:
+
+    cold        start() 159.5 ms   first callback 145.9 ms   AUDIO LOST 36.6 ms
+    prewarmed   start()  38.6 ms   first callback 144.4 ms   AUDIO LOST 35.1 ms
+
+`first callback` is when the tap fires. Most of it is simply the 4096-frame tap
+buffer filling: 4096 frames at 48 kHz is 85 ms, and that audio is INSIDE the
+buffer, not missing. Reading 144 ms as "lost audio" is wrong.
+
+`AUDIO LOST` compares `start()` against the hardware timestamp (`AVAudioTime.hostTime`)
+of the first captured sample, so it is the audio that genuinely never existed
+anywhere and is the only part a pre-roll buffer could recover.
+
+**The app loses about 35 ms, not 250 ms.**
+
+### 2. What 35 ms is worth
+
+Regenerated the corpus with an onset sweep (50 / 100 / 250 ms) so the cost
+curve is measured rather than extrapolated. 320 clips:
+
+    onset removed    corpus WER    corpus CER
+    0 ms (clean)        12.9%          4.7%
+    50 ms               14.2%          5.3%
+    100 ms              15.0%          6.7%
+    250 ms              21.6%         16.7%
+
+The damage is strongly non-linear: 250 ms is catastrophic, 50 ms costs about
+1.3 points of WER. The app's real 35 ms therefore costs roughly **one point of
+WER**, and that is an upper bound, because the sweep cuts 35 ms out of speech
+that starts immediately, while a push-to-talk user presses the key and then
+starts speaking. The lead-in silence absorbs most of a 35 ms gap.
+
+### 3. Why it is not worth building anyway
+
+A ring buffer can only contain audio the microphone already captured. To have
+anything from before the keypress, the microphone must be running before the
+keypress. The hotkey IS the keypress: `PushToTalkHotkey` triggers on
+`.flagsChanged` for right Option going down, so there is no earlier "armed"
+state to hang a buffer on. The only way to fill the buffer is to keep the mic
+open continuously, which means a permanent orange recording indicator and
+directly contradicts the product's "pull to mic, never always-on" positioning.
+
+Trading the app's central privacy claim for one point of WER is a bad trade.
+Recommendation: do not build the pre-roll ring buffer. `MicrophoneRecorder`
+keeps the instrumentation (it is 20 lines, costs nothing, and `--test-onset`
+will catch it if a future change makes the gap grow), and no always-on capture
+is introduced.
+
+If onset ever needs to be recovered, the honest way is a UX change, not a
+hidden buffer: arm on a distinct modifier and let the user see it. That is a
+product decision, not an ASR one.
+
+Numbers above: WER/CER taken from the file-fed path, which is deterministic.
+The onset numbers came from the real capture path on the live microphone.
+Latency medians in the 320-clip run were taken while the machine was under load
+(load average 25, four other agents building), so they read ~25% higher than
+the quiet-machine baseline; the WER and CER figures are unaffected by load.

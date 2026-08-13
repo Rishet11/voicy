@@ -15,6 +15,8 @@
 #   fast      1.25x speaking rate                        (a hurried user)
 #   slow      0.85x speaking rate                        (a careful user)
 #   quiet     -18 dB gain                                (mic far away)
+#   clip50    first 50 ms removed                         (measured real loss)
+#   clip100   first 100 ms removed                        (a slower device)
 #   clipstart first 250 ms removed                       (capture began late)
 #   trailsil  1.5 s of silence appended                  (user let go slowly)
 #
@@ -92,6 +94,10 @@ variant_for() {
             ffmpeg -y -loglevel error -i "$src" -filter:a "atempo=0.85" "${FMT[@]}" "$out" ;;
         quiet)
             ffmpeg -y -loglevel error -i "$src" -filter:a "volume=-18dB" "${FMT[@]}" "$out" ;;
+        clip50)
+            ffmpeg -y -loglevel error -ss 0.05 -i "$src" "${FMT[@]}" "$out" ;;
+        clip100)
+            ffmpeg -y -loglevel error -ss 0.10 -i "$src" "${FMT[@]}" "$out" ;;
         clipstart)
             ffmpeg -y -loglevel error -ss 0.25 -i "$src" "${FMT[@]}" "$out" ;;
         trailsil)
@@ -101,7 +107,7 @@ variant_for() {
     esac
 }
 
-VARIANTS=(noise10 noise5 babble fast slow quiet clipstart trailsil)
+VARIANTS=(noise10 noise5 babble fast slow quiet clip50 clip100 clipstart trailsil)
 
 : > "$OUT_MANIFEST.tmp"
 {

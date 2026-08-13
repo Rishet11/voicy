@@ -35,29 +35,44 @@ fi
 echo "==> working tree does not compile; see /tmp/voicy-asr-build.log" >&2
 grep -E "error:" /tmp/voicy-asr-build.log | sed 's/^/    /' | sort -u | head -20 >&2
 
-# Which files are dirty and NOT owned by the ASR worker?
-FOREIGN=$(git diff --name-only HEAD -- Sources Tests Tools \
-    | grep -v -E '^(Sources/Voicy/(Speech|Audio|Testing)/|Tools/|Tests/audio/)' || true)
-if [ -z "$FOREIGN" ]; then
-    echo "==> the failure is in ASR-owned code. Fix it, do not work around it." >&2
-    exit 1
-fi
-
-echo "==> mirroring the tree and reverting sibling-owned files to HEAD:" >&2
-echo "$FOREIGN" | sed 's/^/    /' >&2
-
 rm -rf "$MIRROR"
 mkdir -p "$MIRROR"
 # Copy the working tree, excluding build products.
 rsync -a --exclude '.build*' --exclude 'dist' --exclude '.git' "$ROOT/" "$MIRROR/"
 cp -R "$ROOT/.git" "$MIRROR/.git"
-(cd "$MIRROR" && echo "$FOREIGN" | tr '\n' '\0' | xargs -0 git checkout HEAD -- 2>/dev/null || true)
 
-if ! swift build --package-path "$MIRROR" --scratch-path "$MIRROR/.build" >/tmp/voicy-asr-build-mirror.log 2>&1; then
-    echo "==> mirror build ALSO failed; see /tmp/voicy-asr-build-mirror.log" >&2
-    grep -E "error:" /tmp/voicy-asr-build-mirror.log | sed 's/^/    /' | sort -u | head -20 >&2
-    exit 1
-fi
+# Revert ONLY the files the compiler actually complains about, one round at a
+# time. Reverting every dirty sibling file at once was tried and is worse: it
+# put a sibling's committed test file next to their reverted source and broke
+# the build in a new way. Errors name files; follow the errors.
+LOG=/tmp/voicy-asr-build.log
+for round in 1 2 3 4 5; do
+    BROKEN=$(grep -oE '^/[^:]+\.swift' "$LOG" | sort -u \
+        | sed "s|^$ROOT/||" \
+        | grep -v -E '^(Sources/Voicy/(Speech|Audio|Testing)/|Tools/|Tests/audio/)' || true)
+    if [ -z "$BROKEN" ]; then
+        echo "==> the failure is in ASR-owned code. Fix it, do not work around it." >&2
+        exit 1
+    fi
+    echo "==> round $round: reverting to HEAD in the mirror:" >&2
+    echo "$BROKEN" | sed 's/^/    /' >&2
+    # A file that is untracked at HEAD cannot be reverted; delete it instead,
+    # since it is by definition new work in flight.
+    (cd "$MIRROR" && while IFS= read -r f; do
+        [ -z "$f" ] && continue
+        git checkout HEAD -- "$f" 2>/dev/null || rm -f "$f"
+    done <<< "$BROKEN")
 
-echo "BUILT_FROM=mirror-with-siblings-reverted" >&2
-echo "$MIRROR/.build/debug/Voicy"
+    LOG=/tmp/voicy-asr-build-mirror.log
+    if swift build --package-path "$MIRROR" --scratch-path "$MIRROR/.build" >"$LOG" 2>&1; then
+        echo "BUILT_FROM=mirror-with-siblings-reverted" >&2
+        echo "$MIRROR/.build/debug/Voicy"
+        exit 0
+    fi
+    echo "==> still failing:" >&2
+    grep -E "error:" "$LOG" | sed 's/^/    /' | sort -u | head -10 >&2
+done
+
+echo "==> gave up after 5 rounds; see $LOG" >&2
+exit 1
+

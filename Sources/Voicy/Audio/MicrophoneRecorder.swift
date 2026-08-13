@@ -20,6 +20,53 @@ final class MicrophoneRecorder {
     /// The 16 kHz mono Float32 samples captured since `start()`.
     var captured: [Float] { pcmSamples }
 
+    // MARK: Onset instrumentation
+    //
+    // The augmented corpus measured that losing the first 250 ms of an
+    // utterance costs more accuracy than mixing in noise at 5 dB SNR (21.6% WER
+    // vs 20.5%, CER 16.7% vs 10.3%). Capture begins when the user presses the
+    // key, so any delay between the keypress and the first real sample is
+    // audio the recognizer never sees. These two timestamps measure that delay
+    // instead of assuming it.
+
+    /// When `start()` was called, i.e. as close to the keypress as this class
+    /// can observe.
+    private(set) var startedAt: Date?
+
+    /// When the first tap buffer carrying samples arrived.
+    private(set) var firstBufferAt: Date?
+
+    /// Milliseconds between `start()` and the first tap CALLBACK.
+    ///
+    /// This is NOT the amount of audio lost, and reading it as such
+    /// overstates the problem. A tap of 4096 frames at 48 kHz cannot fire
+    /// until 85 ms of audio has been collected, and that 85 ms is inside the
+    /// buffer, not missing. Use `capturedGapMs` for the audio that is actually
+    /// gone.
+    var onsetGapMs: Double? {
+        guard let startedAt, let firstBufferAt else { return nil }
+        return firstBufferAt.timeIntervalSince(startedAt) * 1000
+    }
+
+    /// `start()` in mach absolute time, paired with the hardware timestamp of
+    /// the first captured frame, so the two can be compared on the same clock.
+    private var startedAtHost: UInt64?
+    private var firstSampleHost: UInt64?
+
+    /// Milliseconds of audio that genuinely never reached us: from the
+    /// `start()` call to the hardware timestamp of the FIRST captured sample.
+    ///
+    /// This is the number the pre-roll question turns on. Whatever it is, it
+    /// is audio the recognizer will never see, because it was never recorded
+    /// by anything.
+    var capturedGapMs: Double? {
+        guard let startedAtHost, let firstSampleHost, firstSampleHost > startedAtHost else { return nil }
+        var info = mach_timebase_info_data_t()
+        mach_timebase_info(&info)
+        let nanos = Double(firstSampleHost - startedAtHost) * Double(info.numer) / Double(info.denom)
+        return nanos / 1_000_000
+    }
+
     var isRunning: Bool { engine.isRunning }
 
     /// Cached hardware input format, resolved once by `prewarm()`.
@@ -81,15 +128,22 @@ final class MicrophoneRecorder {
         }
 
         pcmSamples = []
+        firstBufferAt = nil
 
         let converter = self.converter
         let target = self.targetFormat
-        input.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
+        input.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, when in
             guard let self, let converter, let target else { return }
+            if self.firstSampleHost == nil, buffer.frameLength > 0, when.isHostTimeValid {
+                self.firstSampleHost = when.hostTime
+            }
             self.convertAndAppend(buffer, converter: converter, targetFormat: target)
         }
 
         engine.prepare()
+        firstSampleHost = nil
+        startedAtHost = mach_absolute_time()
+        startedAt = Date()
         do {
             try engine.start()
         } catch {
@@ -141,6 +195,7 @@ final class MicrophoneRecorder {
             return
         }
         guard let channel = out.floatChannelData?[0] else { return }
+        if firstBufferAt == nil, out.frameLength > 0 { firstBufferAt = Date() }
         pcmSamples.append(contentsOf: UnsafeBufferPointer(start: channel, count: Int(out.frameLength)))
     }
 }
