@@ -6,11 +6,61 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 CONFIG="${1:-release}"
+case "$CONFIG" in
+  release|debug) ;;
+  -h|--help)
+    echo "usage: ./build.sh [release|debug]"
+    echo "Builds Voicy and writes a runnable bundle to dist/Voicy.app."
+    exit 0 ;;
+  *)
+    echo "ERROR: unknown configuration '$CONFIG'." >&2
+    echo "       usage: ./build.sh [release|debug]" >&2
+    exit 2 ;;
+esac
+
 APP_NAME="Voicy"
 ROOT="$(pwd)"
 APP_BUNDLE="$ROOT/dist/$APP_NAME.app"
 BIN_DIR="$APP_BUNDLE/Contents/MacOS"
 RES_DIR="$APP_BUNDLE/Contents/Resources"
+
+# --- Preflight. Fail here, with a fix, rather than mid-build with a stack trace.
+fail() { echo "ERROR: $1" >&2; shift; for line in "$@"; do echo "       $line" >&2; done; exit 1; }
+
+[ "$(uname -s)" = "Darwin" ] || fail \
+  "Voicy is a macOS app; this is $(uname -s)." \
+  "Build it on a Mac running macOS 14 or newer."
+
+for f in Package.swift Info.plist Sources/Voicy; do
+  [ -e "$ROOT/$f" ] || fail \
+    "missing $f — this does not look like a Voicy checkout." \
+    "Run build.sh from the repository root: ./build.sh"
+done
+
+command -v xcode-select >/dev/null 2>&1 || fail \
+  "Xcode command line tools are not installed." \
+  "Install them with: xcode-select --install"
+
+if ! xcrun --find swift >/dev/null 2>&1; then
+  fail "no Swift toolchain is selected." \
+    "Install Xcode (or the command line tools) and point at it:" \
+    "  xcode-select --install" \
+    "  sudo xcode-select --switch /Applications/Xcode.app"
+fi
+
+command -v swift >/dev/null 2>&1 || fail \
+  "'swift' is not on PATH even though a toolchain exists." \
+  "Try: sudo xcode-select --switch /Applications/Xcode.app"
+
+SWIFT_MAJOR="$(swift -version 2>&1 | sed -n 's/.*Swift version \([0-9]*\).*/\1/p' | head -1)"
+if [ -n "$SWIFT_MAJOR" ] && [ "$SWIFT_MAJOR" -lt 6 ]; then
+  fail "Swift $SWIFT_MAJOR found, but Package.swift needs Swift 6 or newer." \
+    "Update Xcode, then re-run ./build.sh"
+fi
+
+command -v codesign >/dev/null 2>&1 || fail \
+  "'codesign' is missing, so the bundle cannot be signed." \
+  "It ships with the Xcode command line tools: xcode-select --install"
 
 echo "==> Building Swift package ($CONFIG)"
 swift build -c "$CONFIG"
@@ -23,9 +73,13 @@ else
 fi
 
 if [ ! -f "$BIN" ]; then
-    echo "ERROR: built binary not found at $BIN" >&2
-    exit 1
+    fail "the build reported success but no binary exists at $BIN." \
+      "Try a clean rebuild: rm -rf .build && ./build.sh"
 fi
+
+plutil -lint "$ROOT/Info.plist" >/dev/null || fail \
+  "Info.plist is not a valid property list, so the bundle would not launch." \
+  "Inspect it with: plutil -lint Info.plist"
 
 echo "==> Assembling $APP_BUNDLE"
 rm -rf "$APP_BUNDLE"
@@ -55,6 +109,10 @@ else
   echo "    Permissions will reset on every rebuild."
   codesign --force --deep --sign - "$APP_BUNDLE"
 fi
+
+codesign --verify --strict "$APP_BUNDLE" || fail \
+  "the assembled bundle failed signature verification." \
+  "Remove dist/ and rebuild: rm -rf dist && ./build.sh"
 
 echo "==> Done: $APP_BUNDLE"
 echo "Run it with: open \"$APP_BUNDLE\""

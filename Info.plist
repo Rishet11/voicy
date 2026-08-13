@@ -32,7 +32,9 @@
 	<string>Voicy uses on-device speech recognition to transcribe your voice notes. Audio never leaves your Mac.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>Voicy reads your contacts so it can match the name you speak to the right WhatsApp number. Contacts never leave your Mac.</string>
+	<key>NSInputMonitoringUsageDescription</key>
+	<string>Voicy watches for your push-to-talk key so dictation starts without clicking the menu bar. It looks only for that one key combination, only while Voicy is running, and keystrokes are never recorded or stored.</string>
 	<key>NSHumanReadableCopyright</key>
-	<string></string>
+	<string>Copyright © 2026 Rishet Mehra. MIT licensed.</string>
 </dict>
 </plist>
