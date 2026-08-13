@@ -101,37 +101,21 @@ extension Transcriber {
 
 /// Builds the best transcription engine available on the running OS.
 enum TranscriberFactory {
-    /// The harness seam for locale A/B runs: `VOICY_TRANSCRIBER_LOCALE=en_IN`
-    /// makes `make()` build the engine for that locale without touching any
-    /// other code. Ships defaulting to en_US; production code never sets the
-    /// variable, so the default path is unchanged.
+    /// The shipped engine, nothing else. No environment variables, no launch
+    /// flags: the locale resolves via `TranscriberLocale.requestedLocale()`
+    /// (persisted user setting, else the system locale, else `en_US`), and
+    /// every engine re-validates it against what the machine has installed,
+    /// falling back sanely when it is unavailable.
     ///
-    /// `VOICY_ENGINE` selects the engine for accuracy measurement:
-    ///   (unset)       -> SpeechAnalyzerTranscriber (the shipped engine)
-    ///   legacy        -> legacy SFSpeechRecognizer, on-device
-    ///   legacy-lm     -> legacy SFSpeechRecognizer + customizedLanguageModel
-    ///                    built from the per-call hints
-    ///   dictation-lm  -> SpeechAnalyzer with DictationTranscriber +
-    ///                    ContentHint.customizedLanguage, LM built from hints
+    /// The variant engines (`LegacySpeechTranscriber` with a custom language
+    /// model, `DictationLanguageModelTranscriber`) stay constructible
+    /// directly for accuracy measurement; a caller that wants one passes it
+    /// in explicitly instead of selecting it by environment.
     static func make(
-        locale: Locale = Locale(identifier: ProcessInfo.processInfo.environment["VOICY_TRANSCRIBER_LOCALE"] ?? "en_US")
+        locale: Locale = TranscriberLocale.requestedLocale()
     ) -> Transcriber {
-        let engine = ProcessInfo.processInfo.environment["VOICY_ENGINE"] ?? ""
         if #available(macOS 26.0, *) {
-            switch engine {
-            case "legacy":
-                return LegacySpeechTranscriber(locale: locale)
-            case "legacy-lm":
-                return LegacySpeechTranscriber(locale: locale, useCustomLanguageModel: true)
-            case "legacy-badlm":
-                return LegacySpeechTranscriber(locale: locale, bogusLanguageModelForTest: true)
-            case "dictation-lm":
-                return DictationLanguageModelTranscriber(locale: locale)
-            case "dictation-badlm":
-                return DictationLanguageModelTranscriber(locale: locale)
-            default:
-                return SpeechAnalyzerTranscriber(locale: locale)
-            }
+            return SpeechAnalyzerTranscriber(locale: locale)
         } else {
             return LegacySpeechTranscriber(locale: locale)
         }
@@ -226,9 +210,14 @@ enum AudioTranscribeFailure: Error {
 @available(macOS 26.0, *)
 final class SpeechAnalyzerTranscriber: Transcriber {
     private let locale: Locale
+    /// Effective locale, resolved once against the machine's installed
+    /// inventory. If the requested locale is not installed, this is the
+    /// fallback `TranscriberLocale` picked (never an unavailable locale).
+    private let resolvedLocale: Task<Locale, Never>
 
     init(locale: Locale) {
         self.locale = locale
+        self.resolvedLocale = Task { await TranscriberLocale.availableLocale(for: locale).locale }
     }
 
     func transcribe(pcm: [Float], hints: [String]) async throws -> String {
@@ -255,7 +244,7 @@ final class SpeechAnalyzerTranscriber: Transcriber {
         // preset stays. Mangled names are handled where they can actually be
         // fixed: fuzzy/phonetic contact matching, and alias learning, which makes
         // a name the user corrects once resolve instantly forever after.
-        let module = SpeechTranscriber(locale: locale, preset: .transcription)
+        let module = SpeechTranscriber(locale: await resolvedLocale.value, preset: .transcription)
         let analyzer = SpeechAnalyzer(modules: [module])
 
         // Bias recognition toward expected words (contact names).
@@ -312,9 +301,13 @@ final class SpeechAnalyzerTranscriber: Transcriber {
 @available(macOS 26.0, *)
 final class DictationLanguageModelTranscriber: Transcriber {
     private let locale: Locale
+    /// Effective locale, resolved once against the machine's installed
+    /// inventory (same fallback chain as the primary engine).
+    private let resolvedLocale: Task<Locale, Never>
 
     init(locale: Locale) {
         self.locale = locale
+        self.resolvedLocale = Task { await TranscriberLocale.availableLocale(for: locale).locale }
     }
 
     func transcribe(pcm: [Float], hints: [String]) async throws -> String {
@@ -324,25 +317,16 @@ final class DictationLanguageModelTranscriber: Transcriber {
     func transcribeDetailed(pcm: [Float], hints: [String]) async throws -> TranscriptionResult {
         var contentHints: Set<DictationTranscriber.ContentHint> = []
         if !hints.isEmpty {
-            if ProcessInfo.processInfo.environment["VOICY_ENGINE"] == "dictation-badlm" {
-                // Falsification probe: a config pointing at a nonexistent model.
-                // If DictationTranscriber honors the hint, this must fail or
-                // change output; if not, the hint is ignored by the engine.
-                contentHints.insert(.customizedLanguage(modelConfiguration: SFSpeechLanguageModel.Configuration(
-                    languageModel: URL(fileURLWithPath: "/nonexistent/voicy-test/model.bin")
-                )))
-            } else {
-                let configuration = try await CustomLanguageModelCache.shared
-                    .configuration(for: hints, locale: locale)
-                contentHints.insert(.customizedLanguage(modelConfiguration: configuration))
-            }
+            let configuration = try await CustomLanguageModelCache.shared
+                .configuration(for: hints, locale: await resolvedLocale.value)
+            contentHints.insert(.customizedLanguage(modelConfiguration: configuration))
         }
 
         // Options mirror SpeechTranscriber.Preset.transcription: punctuation on,
         // no emoji/etiquette rewriting, no alternatives (alternatives doubled
         // latency for no accuracy gain on the primary engine).
         let module = DictationTranscriber(
-            locale: locale,
+            locale: await resolvedLocale.value,
             contentHints: contentHints,
             transcriptionOptions: [.punctuation],
             reportingOptions: [],

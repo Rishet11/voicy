@@ -15,28 +15,23 @@ final class LegacySpeechTranscriber: Transcriber {
 
     private let locale: Locale
 
+    /// Effective locale, resolved once against the machine's installed
+    /// inventory (same fallback chain as the primary engine).
+    private let resolvedLocale: Task<Locale, Never>
+
     /// When true, requests run with a compiled custom language model built from
     /// the per-call hints (cached by `CustomLanguageModelCache`). This is the
     /// documented `SFSpeechRecognitionRequest.customizedLanguageModel`
     /// mechanism, the real replacement for the ineffective `contextualStrings`.
     private let useCustomLanguageModel: Bool
 
-    /// Falsification probe: when true, the request gets a language model
-    /// configuration pointing at a file that does not exist. If the framework
-    /// honors `customizedLanguageModel`, recognition must fail or complain;
-    /// if it silently ignores the property, nothing changes. Used once, from
-    /// the harness (`VOICY_ENGINE=legacy-badlm`), to prove the real LM runs
-    /// above were actually exercising the property.
-    private let bogusLanguageModelForTest: Bool
-
     init(
-        locale: Locale = Locale(identifier: "en_US"),
-        useCustomLanguageModel: Bool = false,
-        bogusLanguageModelForTest: Bool = false
+        locale: Locale = TranscriberLocale.requestedLocale(),
+        useCustomLanguageModel: Bool = false
     ) {
         self.locale = locale
+        self.resolvedLocale = Task { await TranscriberLocale.availableLocale(for: locale).locale }
         self.useCustomLanguageModel = useCustomLanguageModel
-        self.bogusLanguageModelForTest = bogusLanguageModelForTest
     }
 
     /// Requests (and waits for) speech recognition permission.
@@ -54,23 +49,18 @@ final class LegacySpeechTranscriber: Transcriber {
             throw LegacyError.notAuthorized
         }
 
-        guard let recognizer = SFSpeechRecognizer(locale: locale), recognizer.isAvailable else {
+        guard let recognizer = SFSpeechRecognizer(locale: await resolvedLocale.value), recognizer.isAvailable else {
             throw LegacyError.recognizerUnavailable
         }
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = false
         request.requiresOnDeviceRecognition = true
-        if bogusLanguageModelForTest {
-            request.customizedLanguageModel = SFSpeechLanguageModel.Configuration(
-                languageModel: URL(fileURLWithPath: "/nonexistent/voicy-test/model.bin")
-            )
-        }
         if !hints.isEmpty {
             request.contextualStrings = hints
             if useCustomLanguageModel {
                 request.customizedLanguageModel = try await CustomLanguageModelCache.shared
-                    .configuration(for: hints, locale: locale)
+                    .configuration(for: hints, locale: await resolvedLocale.value)
             }
         }
 
