@@ -93,6 +93,18 @@ public func runIntentTests() -> (passed: Int, failed: Int) {
            recipient: "Shreya", body: "I'll call you", app: .whatsapp,
            "app verb 'whatsapp' -> .whatsapp")
 
+    expect("telegram Pulkit that I am late",
+           recipient: "Pulkit", body: "I am late", app: .telegram,
+           "verb 'telegram' -> .telegram")
+
+    expect("telegram Rahul Sharma that the meeting is at five",
+           recipient: "Rahul Sharma", body: "the meeting is at five", app: .telegram,
+           "telegram with a multi-word name")
+
+    expect("telegram Pulkit I'll be there soon",
+           recipient: "Pulkit", body: "I'll be there soon", app: .telegram,
+           "telegram with pronoun boundary, no connector")
+
     expect("text Siddharth on my way",
            recipient: "Siddharth", body: "on my way", app: .whatsapp,
            "verb 'text' + 'on' preposition boundary")

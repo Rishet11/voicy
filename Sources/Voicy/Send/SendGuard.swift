@@ -38,6 +38,9 @@ enum SendGuard {
         case notAllowlisted(phone: String)
         /// No digits in the phone number: no deep link can be built.
         case noPhoneDigits
+        /// The Telegram target has neither a username nor a phone number.
+        /// Refused rather than resolved by guessing.
+        case noResolvableIdentifier
 
         var reason: String {
             switch self {
@@ -46,6 +49,7 @@ enum SendGuard {
             case .blocklisted(let c): return "'\(SendGuard.maskIdentifier(c))' is blocklisted"
             case .notAllowlisted(let p): return "\(SendGuard.maskPhone(p)) is not eligible to send"
             case .noPhoneDigits: return "recipient has no usable phone digits"
+            case .noResolvableIdentifier: return "recipient has no Telegram username or phone number"
             }
         }
     }
@@ -63,6 +67,8 @@ enum SendGuard {
         case refused(Refusal)
     }
 
+    /// WhatsApp rail: the target must carry usable phone digits.
+    ///
     /// - Parameters:
     ///   - phone: recipient, E.164 digits (a `+` and formatting are tolerated).
     ///   - contactName: display name, also checked against the blocklist.
@@ -75,18 +81,57 @@ enum SendGuard {
                        blocklist: Blocklist,
                        confirmed: Bool,
                        requestedDryRun: Bool) -> Decision {
+        decideCore(identifier: phone,
+                   requirePhoneDigits: true,
+                   contactName: contactName,
+                   blocklist: blocklist,
+                   confirmed: confirmed,
+                   requestedDryRun: requestedDryRun)
+    }
+
+    /// Telegram rail: the target is a username or a phone number, so only an
+    /// empty/whitespace identifier is refused here. Fine-grained validation
+    /// (username shape, phone length) happens in `TelegramDeepLink`.
+    ///
+    /// Same rails, same priority as the WhatsApp rail: kill switch, blocklist
+    /// on both identifiers, resolvable target, then confirmation.
+    static func decide(identifier: String,
+                       contactName: String?,
+                       blocklist: Blocklist,
+                       confirmed: Bool,
+                       requestedDryRun: Bool) -> Decision {
+        decideCore(identifier: identifier,
+                   requirePhoneDigits: false,
+                   contactName: contactName,
+                   blocklist: blocklist,
+                   confirmed: confirmed,
+                   requestedDryRun: requestedDryRun)
+    }
+
+    /// One implementation for both rails, so the guarantees cannot drift.
+    private static func decideCore(identifier: String,
+                                   requirePhoneDigits: Bool,
+                                   contactName: String?,
+                                   blocklist: Blocklist,
+                                   confirmed: Bool,
+                                   requestedDryRun: Bool) -> Decision {
         // 1. Kill switch, before anything else, including dry runs.
         if case .corrupt = blocklist.state { return .refused(.blocklistUnreadable) }
         if blocklist.neverSend { return .refused(.neverSend) }
 
         // 2. Blocklist, on both identifiers.
-        for identifier in [contactName, phone].compactMap({ $0 }) where blocklist.contains(identifier) {
-            return .refused(.blocklisted(contact: identifier))
+        for candidate in [contactName, identifier].compactMap({ $0 }) where blocklist.contains(candidate) {
+            return .refused(.blocklisted(contact: candidate))
         }
 
-        // 3. A target we cannot dial is a failure, not a silent no-op.
-        let digits = phone.filter(\.isNumber)
-        guard !digits.isEmpty else { return .refused(.noPhoneDigits) }
+        // 3. A target we cannot address is a failure, not a silent no-op.
+        if requirePhoneDigits {
+            let digits = identifier.filter(\.isNumber)
+            guard !digits.isEmpty else { return .refused(.noPhoneDigits) }
+        } else {
+            let trimmed = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return .refused(.noResolvableIdentifier) }
+        }
 
         // 4. Confirmation. Absent it, downgrade — never proceed.
         if requestedDryRun { return .dryRun }

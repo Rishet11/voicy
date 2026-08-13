@@ -3,17 +3,27 @@ import ApplicationServices
 import CoreGraphics
 import Foundation
 
-/// Raw Accessibility-tree primitives for the WhatsApp send path.
+/// Raw Accessibility-tree primitives for the Telegram send path.
 ///
 /// AX inspection is read-only. The only input primitive is the explicit,
-/// post-confirmation Return in `postReturn()`.
-///
-/// There is no `osascript` anywhere either: macOS attributes Accessibility
-/// permission to the process that *requests* it, so shelling out would put the
-/// prompt under Terminal and silently break the trust check.
-enum WhatsAppAccessibility {
+/// post-confirmation Return in `postReturn()`. Same discipline as
+/// `WhatsAppAccessibility`: no `osascript` anywhere, ever.
+enum TelegramAccessibility {
 
-    private static let mainBundleIdentifier = "net.whatsapp.WhatsApp"
+    /// Bundle ids of the two Telegram Mac clients. Release Telegram Desktop
+    /// ships as `org.telegram.desktop` (verified in tdesktop's own
+    /// CMakeLists.txt); the App Store "Telegram for macOS" build is
+    /// `ru.keepcoder.Telegram`. Both handle the `tg://` scheme.
+    static let telegramBundleIDs = ["org.telegram.desktop", "ru.keepcoder.Telegram"]
+
+    /// True when either Telegram client is installed. This is the distinct
+    /// "Telegram not installed" check; "installed but not running" is a
+    /// separate failure reported by the compose waiter.
+    static func isInstalled() -> Bool {
+        telegramBundleIDs.contains {
+            NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) != nil
+        }
+    }
 
     /// Checks whether this process holds Accessibility permission, prompting
     /// the user if `prompt` is true and the app is trusted-eligible.
@@ -40,15 +50,17 @@ enum WhatsAppAccessibility {
         return pid
     }
 
-    /// Whether the frontmost app is WhatsApp proper (by bundle id or name).
-    static func frontmostIsWhatsApp() -> Bool {
+    /// Whether the frontmost app is a Telegram client (by bundle id or name).
+    static func frontmostIsTelegram() -> Bool {
         guard let pid = frontmostPID() else { return false }
-        return isWhatsApp(pid: pid)
+        return isTelegram(pid: pid)
     }
 
-    static func isWhatsApp(pid: pid_t) -> Bool {
+    static func isTelegram(pid: pid_t) -> Bool {
         guard let app = NSRunningApplication(processIdentifier: pid) else { return false }
-        return app.bundleIdentifier == mainBundleIdentifier
+        let bundleID = (app.bundleIdentifier ?? "").lowercased()
+        let name = (app.localizedName ?? "").lowercased()
+        return bundleID.contains("telegram") || name.contains("telegram")
     }
 
     /// The currently focused element of the frontmost app, if any.
@@ -65,18 +77,19 @@ enum WhatsAppAccessibility {
         return (focusedRef as! AXUIElement)
     }
 
-    /// True when the frontmost app is WhatsApp AND its focused element is a
-    /// text input (the composer). This is the readiness signal we poll for.
-    static func isWhatsAppFocusedOnTextInput() -> Bool {
-        guard frontmostIsWhatsApp() else { return false }
+    /// True when the frontmost app is Telegram AND its focused element is a
+    /// text input (the message composer). This is the readiness signal we
+    /// poll for.
+    static func isTelegramFocusedOnTextInput() -> Bool {
+        guard frontmostIsTelegram() else { return false }
         guard let focused = focusedElement() else { return false }
         return isTextInput(focused)
     }
 
     /// The current value of the focused text input (nil if not readable or not
-    /// a text input). Used to verify the composer emptied after Return.
+    /// a text input). Used to verify the composer holds the exact body.
     static func focusedTextValue() -> String? {
-        guard frontmostIsWhatsApp() else { return nil }
+        guard frontmostIsTelegram() else { return nil }
         guard let focused = focusedElement() else { return nil }
         guard isTextInput(focused) else { return nil }
         var value: CFTypeRef?
@@ -97,30 +110,22 @@ enum WhatsAppAccessibility {
 
     // MARK: - Readiness probes (read-only)
 
-    /// PID of the running WhatsApp application, whether or not it is frontmost.
-    /// Nil means the app is not running at all, which is a distinct failure
+    /// PID of a running Telegram client, whether or not it is frontmost.
+    /// Nil means Telegram is not running at all, which is a distinct failure
     /// from "running but not ready".
-    static func whatsAppPID() -> pid_t? {
+    static func telegramPID() -> pid_t? {
         NSWorkspace.shared.runningApplications.first { app in
-            app.bundleIdentifier == mainBundleIdentifier
+            let bundleID = (app.bundleIdentifier ?? "").lowercased()
+            let name = (app.localizedName ?? "").lowercased()
+            return bundleID.contains("telegram") || name.contains("telegram")
         }?.processIdentifier
     }
 
-    /// Bring the main WhatsApp app forward when a deep link did not do so.
-    /// Running state is independent from frontmost state.
-    static func activateIfNeeded() {
-        guard let pid = whatsAppPID(),
-              let app = NSRunningApplication(processIdentifier: pid) else { return }
-        if frontmostPID() != pid {
-            app.activate(options: [.activateIgnoringOtherApps])
-        }
-    }
-
-    /// True when WhatsApp is running AND exposes at least one window. A running
+    /// True when Telegram is running AND exposes at least one window. A running
     /// app with no window is the normal state a fraction of a second after the
     /// deep link launches it, so this is worth distinguishing.
-    static func whatsAppHasWindow() -> Bool {
-        guard let pid = whatsAppPID() else { return false }
+    static func telegramHasWindow() -> Bool {
+        guard let pid = telegramPID() else { return false }
         let app = AXUIElementCreateApplication(pid)
         var windows: CFTypeRef?
         let err = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &windows)
@@ -128,42 +133,18 @@ enum WhatsAppAccessibility {
         return !list.isEmpty
     }
 
-    /// True when a send affordance is present in WhatsApp's focused window.
+    /// True when a send affordance is present in Telegram's focused window.
     ///
-    /// This is a readiness signal only. Nothing here presses it: the button is
-    /// observed so the app can say "the chat is not in a sendable state"
-    /// instead of leaving the user staring at a composer that will not commit.
-    static func whatsAppSendButtonExists() -> Bool {
-        guard let pid = whatsAppPID() else { return false }
+    /// Readiness signal only. Nothing here presses it: the button is observed
+    /// so the app can say "the chat is not in a sendable state" instead of
+    /// leaving the user staring at a composer that will not commit.
+    static func telegramSendButtonExists() -> Bool {
+        guard let pid = telegramPID() else { return false }
         let app = AXUIElementCreateApplication(pid)
         var window: CFTypeRef?
         let err = AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &window)
         guard err == .success, let windowRef = window else { return false }
         return containsSendButton(windowRef as! AXUIElement, depth: 0)
-    }
-
-    /// Replace the focused composer through Accessibility, never by sending
-    /// destructive keystrokes. Selecting the existing range makes the clear
-    /// operation explicit before writing the confirmed body.
-    static func replaceFocusedText(with text: String) -> Bool {
-        guard frontmostIsWhatsApp(), let focused = focusedElement(), isTextInput(focused) else {
-            return false
-        }
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(focused, kAXValueAttribute as CFString, &value) == .success,
-              let current = value as? String else { return false }
-        var selectedRange = CFRange(location: 0, length: (current as NSString).length)
-        guard AXUIElementSetAttributeValue(focused, kAXSelectedTextRangeAttribute as CFString,
-                                           AXValueCreate(.cfRange, &selectedRange)!) == .success,
-              AXUIElementSetAttributeValue(focused, kAXValueAttribute as CFString, "" as CFTypeRef) == .success,
-              AXUIElementSetAttributeValue(focused, kAXValueAttribute as CFString, text as CFTypeRef) == .success else {
-            return false
-        }
-        var updated: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(focused, kAXValueAttribute as CFString, &updated) == .success else {
-            return false
-        }
-        return (updated as? String) == text
     }
 
     /// Depth-limited search for a button whose description reads as "send".
@@ -205,3 +186,4 @@ enum WhatsAppAccessibility {
         return r
     }
 }
+
