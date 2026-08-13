@@ -4,9 +4,9 @@ import Foundation
 /// WhatsApp for Mac and pre-fills the message in the composer.
 ///
 /// Verified live: opening this URL puts WhatsApp in the foreground with the
-/// message text already in the input field. The caller's job (see
-/// `WhatsAppSender`) is then to post a synthetic Return so the message sends
-/// without the user ever touching WhatsApp.
+/// message text already in the input field, UNSENT. That is the end of Voicy's
+/// involvement: the user presses Return themselves. Nothing here or in
+/// `WhatsAppSender` synthesizes that keystroke.
 enum WhatsAppDeepLink {
     /// Characters allowed un-encoded in the `text` query value.
     ///

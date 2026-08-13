@@ -5,14 +5,16 @@ import Foundation
 
 /// Raw Accessibility-tree primitives for the WhatsApp send path.
 ///
-/// Everything here is a tiny, nonisolated, side-effect-light wrapper around the
-/// AX C API plus the one safe way to post a Return (`CGEventPost`). There is no
-/// `osascript` anywhere: macOS attributes Accessibility permission to the
-/// process that *requests* it, so shelling out would put the prompt under
-/// Terminal and silently break the trust check.
+/// READ-ONLY BY DESIGN. Every function here inspects state; none of them
+/// synthesizes input. There is deliberately no key-posting helper: driving
+/// WhatsApp's composer with a synthetic Return is send-path automation, and
+/// WhatsApp permanently bans accounts for it. Do not add one back. The user's
+/// own keypress inside WhatsApp is the send.
+///
+/// There is no `osascript` anywhere either: macOS attributes Accessibility
+/// permission to the process that *requests* it, so shelling out would put the
+/// prompt under Terminal and silently break the trust check.
 enum WhatsAppAccessibility {
-    /// Carbon virtual keycode for Return.
-    static let returnKeycode: CGKeyCode = 36 // kVK_Return
 
     /// Checks whether this process holds Accessibility permission, prompting
     /// the user if `prompt` is true and the app is trusted-eligible.
@@ -84,22 +86,6 @@ enum WhatsAppAccessibility {
         let err = AXUIElementCopyAttributeValue(focused, kAXValueAttribute as CFString, &value)
         guard err == .success, let v = value as? String else { return nil }
         return v
-    }
-
-    /// Posts a physical Return key-down + key-up at the HID event tap.
-    static func postReturn() {
-        let down = CGEvent(
-            keyboardEventSource: CGEventSource(stateID: .hidSystemState),
-            virtualKey: returnKeycode,
-            keyDown: true
-        )
-        down?.post(tap: .cghidEventTap)
-        let up = CGEvent(
-            keyboardEventSource: CGEventSource(stateID: .hidSystemState),
-            virtualKey: returnKeycode,
-            keyDown: false
-        )
-        up?.post(tap: .cghidEventTap)
     }
 
     // MARK: - Role checks

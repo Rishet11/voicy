@@ -314,11 +314,38 @@ final class Pipeline {
         // bare words. Deterministic beats clever for the text of someone's
         // message.
         let cleanedBody = TranscriptCleaner.rulesOnly(intent.body)
-        let body = TranscriptCleaner.isDeletionOnly(original: intent.body, cleaned: cleanedBody)
+        let deletionOnlyBody = TranscriptCleaner.isDeletionOnly(original: intent.body, cleaned: cleanedBody)
             ? cleanedBody
             : intent.body
+
+        // Then the formatting pass, which IS allowed to rewrite.
+        //
+        // ORDER: deletion-only cleanup first, formatting second, kept as two
+        // separate statements rather than merged into one call.
+        //
+        //  - The deletion-only floor above is unchanged and still verified.
+        //    Nothing after it weakens that guarantee.
+        //  - `TextFormatter` wants the disfluencies already gone: a filler
+        //    between a number and its unit ("in five uh minutes") would hide the
+        //    unit and leave the number spelled out.
+        //  - Deleting this one statement restores the previous behavior exactly,
+        //    which is what we want from a pass permitted to rewrite.
+        //
+        // The two do not fight and nothing double-strips. `TextFormatter` runs
+        // its own disfluency pass over text `rulesOnly` has already cleaned,
+        // which is a no-op: both only ever delete fillers and adjacent repeats,
+        // and formatting is asserted idempotent on every row of the corpus in
+        // TextQualityTests.swift.
+        //
+        // Unlike `rulesOnly` this step is NOT deletion-only, and cannot be:
+        // spoken punctuation ("period"), spoken emails ("rishet at gmail dot
+        // com") and self-corrections are substitutions by nature. Its safety
+        // story is different and deliberate: every rule is a closed, enumerated,
+        // deterministic rewrite with no model in the loop, and the user reads the
+        // result on the confirm card and can edit it before anything is sent.
+        let body = TextFormatter.format(deletionOnlyBody)
         if body != intent.body {
-            print("[voicy] cleanup: removed \(intent.body.count - body.count) char(s) of disfluency")
+            print("[voicy] cleanup: body \(intent.body.count) -> \(body.count) char(s) (disfluency + formatting)")
         }
 
         // The transcript is shown only when nothing matched, so the user can see
@@ -370,75 +397,53 @@ final class Pipeline {
             return
         }
 
-        // "Correct once and it remembers": if the user corrected an ambiguous
-        // recipient at confirm time, persist the spoken name -> this contact.
-        if rememberAlias {
-            persistAlias(spoken: spoken, recipient: recipient)
-        }
-
-        // Tier 2 ("send without pressing Enter"): auto-send with a synthetic Return
-        // ONLY if Accessibility is already granted.
-        if WhatsAppAccessibility.isTrusted(prompt: false) {
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                let t0 = Date()
-                let outcome = await self.whatsAppSender.send(phone: e164, body: body,
-                                                             contactName: recipient.displayName,
-                                                             dryRun: false)
-                let ms = Date().timeIntervalSince(t0) * 1000
-                print("[voicy] send: \(String(format: "%.1f", ms)) ms -> \(outcome)")
+        // ONE outbound path, always: WhatsAppSender checks the kill switch and
+        // the blocklist, then opens the deep link and stops. There is no
+        // synthetic-Return branch. Automating WhatsApp's send is a permanent-ban
+        // risk, so the last inch is always the user's own keypress.
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let outcome = await self.whatsAppSender.send(phone: e164, body: body,
+                                                        contactName: recipient.displayName,
+                                                        dryRun: false)
+            print("[voicy] send: -> \(outcome)")
+            switch outcome {
+            case .prefilled:
+                // "Correct once and it remembers": only learn the name once the
+                // recipient actually cleared the kill switch. Teaching the app a
+                // mapping to a blocked contact would work against the user.
+                if rememberAlias {
+                    self.persistAlias(spoken: spoken, recipient: recipient)
+                }
+                self.tellUserToPressEnter()
+            case .blocked, .failed, .dryRun:
+                break
             }
-        } else {
-            // Tier 1 default: open WhatsApp pre-filled; the user presses Enter.
-            openPrefilledInWhatsApp(phone: e164, body: body)
         }
     }
 
-    private func openPrefilledInWhatsApp(phone: String, body: String) {
-        do {
-            let url = try WhatsAppDeepLink.sendURL(phone: phone, text: body)
-            guard NSWorkspace.shared.open(url) else {
-                print("[voicy] send: NSWorkspace.open returned false")
-                return
-            }
-            print("[voicy] send (Tier-1): WhatsApp opened pre-filled; user presses Enter")
-            tellUserToPressEnter()
-        } catch {
-            print("[voicy] send: could not build deep link: \(error)")
-        }
-    }
-
-    /// Permission-free, on-demand notice (after WhatsApp is open), not a launch-time
-    /// permission dialog — consistent with the progressive-permission model.
+    /// Permission-free, on-demand notice (after WhatsApp is open), not a
+    /// launch-time permission dialog — consistent with the progressive-permission
+    /// model.
     ///
-    /// Says WHY it did not send by itself. The old wording just told the user to
-    /// press Enter, which left "why didn't auto-send work?" unanswerable without
-    /// reading the source. The usual cause is not a missing grant at all: it is
-    /// running a differently-signed copy of the app. macOS keys Accessibility to
-    /// the code signature, so a stale ad-hoc build with the same bundle id is a
-    /// different identity and is not trusted, no matter what the checkbox says.
+    /// Says WHY the last keypress is the user's, so "why didn't it just send?"
+    /// is answerable without reading the source. Voicy will not press Enter for
+    /// you: WhatsApp treats an automated send as bot activity and bans accounts
+    /// for it permanently, so the send stays a human action by design, not
+    /// because a permission is missing.
     private func tellUserToPressEnter() {
         let alert = NSAlert()
         alert.messageText = "Message ready in WhatsApp"
         alert.informativeText = """
             Press Enter in WhatsApp to send it.
 
-            Voicy did not send it for you because it does not have Accessibility \
-            permission. If you have already granted it, you are probably running a \
-            different build of Voicy than the one you granted: macOS ties this \
-            permission to the app's signature, not its name.
-
-            Running from: \(Bundle.main.bundleURL.path)
+            Voicy never presses Enter for you. WhatsApp bans accounts for \
+            automated sends, so the last keypress is always yours. Nothing has \
+            been sent yet — you can still edit or delete the message in WhatsApp.
             """
         alert.alertStyle = .informational
         alert.addButton(withTitle: "OK")
-        alert.addButton(withTitle: "Open Accessibility Settings")
-        if alert.runModal() == .alertSecondButtonReturn {
-            let pane = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
-            if let url = URL(string: pane) {
-                NSWorkspace.shared.open(url)
-            }
-        }
+        alert.runModal()
     }
 // MARK: - Aliases ("correct once and it remembers")
 

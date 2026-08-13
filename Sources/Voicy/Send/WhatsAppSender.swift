@@ -1,42 +1,36 @@
 import AppKit
 import Foundation
 
-/// Orchestrates the full send path: kill-switch check, (optionally) open the
-/// WhatsApp deep link, wait for the composer to be ready, post Return, then
-/// verify the send actually happened.
+/// Orchestrates the send path: kill-switch check, then open the WhatsApp deep
+/// link so the message is pre-filled in the composer. It stops there.
+///
+/// It deliberately does NOT press Return for the user. Synthesizing a keystroke
+/// into WhatsApp is send-path automation, and WhatsApp bans accounts for it
+/// permanently. The last inch is the user's own keypress inside WhatsApp, every
+/// time. `WhatsAppAccessibility` has no key-posting primitive at all, so this
+/// cannot be re-added by accident here.
 ///
 /// Concurrency note: this is `@MainActor` because it drives the UI-facing flow.
-/// The polling loops use `await Task.sleep`, which yields the main actor between
-/// checks, so the menubar stays responsive while we wait.
 @MainActor
 final class WhatsAppSender {
     /// Clear, machine-checkable outcome of a send attempt.
     enum Outcome: Equatable {
-        /// Composer was confirmed empty after Return (verified real send).
-        case sentVerified
-        /// Return was posted but we could not confirm the composer cleared.
-        /// This is an UNVERIFIED success — reported honestly, never assumed.
-        case sentUnverified
+        /// Deep link opened: WhatsApp is frontmost with the message sitting
+        /// UNSENT in the composer. Nothing has left the account. This is the
+        /// only non-refusal outcome the app can produce.
+        case prefilled
         /// Dry-run: nothing was opened or posted; this is the log of intent.
         case dryRun
         /// Killed by the blocklist before anything happened.
         case blocked(contact: String)
-        /// Something failed before we could send.
+        /// Something failed before we could open anything.
         case failed(String)
     }
 
-    struct Config {
-        var readinessTimeout: TimeInterval = 20
-        var verifyTimeout: TimeInterval = 4
-        var pollInterval: TimeInterval = 0.15
-    }
-
     private var blocklist: Blocklist
-    private let config: Config
 
-    init(blocklist: Blocklist = .load(), config: Config = Config()) {
+    init(blocklist: Blocklist = .load()) {
         self.blocklist = blocklist
-        self.config = config
     }
 
     /// Primary entry point.
@@ -46,15 +40,24 @@ final class WhatsAppSender {
     ///   - body: raw message body, byte-for-byte from the user (never rewritten).
     ///   - contactName: optional display name, checked against the blocklist too.
     ///   - dryRun: when true, logs the exact planned actions and touches nothing.
+    /// - Returns: `.prefilled` at best. Never a "sent" state, because this code
+    ///   cannot send.
     func send(phone: String, body: String, contactName: String? = nil, dryRun: Bool) async -> Outcome {
         // 0. Kill-switch: refuse before doing anything, including dry-run.
-        guard blocklist.isUsable else {
-            log("KILL-SWITCH: blocklist is corrupt/unreadable; refusing EVERY auto-send (fail closed).")
-            return .failed("blocklist unreadable; refuses to auto-send")
+        switch blocklist.state {
+        case .corrupt:
+            log("KILL-SWITCH: blocklist is corrupt/unreadable; refusing EVERY send (fail closed).")
+            return .failed("blocklist unreadable; refuses to send")
+        case .loaded:
+            break
+        }
+        if blocklist.neverSend {
+            log("KILL-SWITCH: neverSend is ON; refusing EVERY send.")
+            return .failed("neverSend kill-switch is on")
         }
         for identifier in [contactName, phone].compactMap({ $0 }) {
             if blocklist.contains(identifier) {
-                log("KILL-SWITCH: '\(identifier)' is blocklisted; refusing to auto-send.")
+                log("KILL-SWITCH: '\(identifier)' is blocklisted; refusing to send.")
                 return .blocked(contact: identifier)
             }
         }
@@ -73,70 +76,21 @@ final class WhatsAppSender {
         if dryRun {
             log("DRY-RUN target phone=\(phone.filter(\.isNumber)) body=\(body.count) char(s) [content redacted]")
             log("DRY-RUN  1. would open the deep link via NSWorkspace (pre-fills composer)")
-            log("DRY-RUN  2. would poll AX until WhatsApp is frontmost with a focused text input (timeout \(self.config.readinessTimeout)s)")
-            log("DRY-RUN  3. would CGEventPost Return (keycode 36)")
-            log("DRY-RUN  4. would verify composer emptied (timeout \(self.config.verifyTimeout)s)")
+            log("DRY-RUN  2. would stop there; the user presses Return inside WhatsApp")
             log("DRY-RUN  blocklist loaded: \(self.blocklist.count) entry(ies)")
             log("DRY-RUN  NOTHING was opened or typed.")
             return .dryRun
         }
 
-        // 3. Accessibility permission — must be granted to this process.
-        guard WhatsAppAccessibility.isTrusted(prompt: true) else {
-            log("FAIL: no Accessibility permission. Voicy cannot post the Return key.")
-            return .failed("missing Accessibility permission")
-        }
-
-        // 4. Open the deep link. Log the target, never the body (CLAUDE.md).
+        // 3. Open the deep link. Log the target, never the body (CLAUDE.md).
         log("OPEN whatsapp://send?phone=\(phone.filter(\.isNumber)) [body redacted]")
         guard NSWorkspace.shared.open(url) else {
             log("FAIL: NSWorkspace.open returned false")
             return .failed("NSWorkspace.open failed")
         }
 
-        // 5. Wait for readiness (frontmost + focused text input).
-        guard await waitForReadiness() else {
-            log("FAIL: WhatsApp never became ready within \(self.config.readinessTimeout)s")
-            return .failed("readiness timeout: WhatsApp window/composer not ready")
-        }
-        log("READY: WhatsApp frontmost with focused text input")
-
-        // 6. Post Return.
-        log("POST Return (keycode 36)")
-        WhatsAppAccessibility.postReturn()
-
-        // 7. Verify the send actually happened.
-        if await verifyComposerCleared() {
-            log("VERIFY: composer empty after Return -> send confirmed")
-            return .sentVerified
-        } else {
-            log("VERIFY: could not confirm composer cleared -> UNVERIFIED success")
-            return .sentUnverified
-        }
-    }
-
-    // MARK: - Polling
-
-    private func waitForReadiness() async -> Bool {
-        let deadline = Date().addingTimeInterval(config.readinessTimeout)
-        while Date() < deadline {
-            if WhatsAppAccessibility.isWhatsAppFocusedOnTextInput() {
-                return true
-            }
-            try? await Task.sleep(for: .milliseconds(Int(config.pollInterval * 1000)))
-        }
-        return false
-    }
-
-    private func verifyComposerCleared() async -> Bool {
-        let deadline = Date().addingTimeInterval(config.verifyTimeout)
-        while Date() < deadline {
-            if let value = WhatsAppAccessibility.focusedTextValue(), value.isEmpty {
-                return true
-            }
-            try? await Task.sleep(for: .milliseconds(Int(config.pollInterval * 1000)))
-        }
-        return false
+        log("PREFILLED: message is in the composer, UNSENT. The user presses Return.")
+        return .prefilled
     }
 
     private func log(_ message: String) {
