@@ -123,7 +123,11 @@ enum TranscriberFactory {
                 return LegacySpeechTranscriber(locale: locale)
             case "legacy-lm":
                 return LegacySpeechTranscriber(locale: locale, useCustomLanguageModel: true)
+            case "legacy-badlm":
+                return LegacySpeechTranscriber(locale: locale, bogusLanguageModelForTest: true)
             case "dictation-lm":
+                return DictationLanguageModelTranscriber(locale: locale)
+            case "dictation-badlm":
                 return DictationLanguageModelTranscriber(locale: locale)
             default:
                 return SpeechAnalyzerTranscriber(locale: locale)
@@ -320,9 +324,18 @@ final class DictationLanguageModelTranscriber: Transcriber {
     func transcribeDetailed(pcm: [Float], hints: [String]) async throws -> TranscriptionResult {
         var contentHints: Set<DictationTranscriber.ContentHint> = []
         if !hints.isEmpty {
-            let configuration = try await CustomLanguageModelCache.shared
-                .configuration(for: hints, locale: locale)
-            contentHints.insert(.customizedLanguage(modelConfiguration: configuration))
+            if ProcessInfo.processInfo.environment["VOICY_ENGINE"] == "dictation-badlm" {
+                // Falsification probe: a config pointing at a nonexistent model.
+                // If DictationTranscriber honors the hint, this must fail or
+                // change output; if not, the hint is ignored by the engine.
+                contentHints.insert(.customizedLanguage(modelConfiguration: SFSpeechLanguageModel.Configuration(
+                    languageModel: URL(fileURLWithPath: "/nonexistent/voicy-test/model.bin")
+                )))
+            } else {
+                let configuration = try await CustomLanguageModelCache.shared
+                    .configuration(for: hints, locale: locale)
+                contentHints.insert(.customizedLanguage(modelConfiguration: configuration))
+            }
         }
 
         // Options mirror SpeechTranscriber.Preset.transcription: punctuation on,

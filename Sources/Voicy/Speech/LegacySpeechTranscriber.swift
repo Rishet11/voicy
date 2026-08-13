@@ -21,9 +21,22 @@ final class LegacySpeechTranscriber: Transcriber {
     /// mechanism, the real replacement for the ineffective `contextualStrings`.
     private let useCustomLanguageModel: Bool
 
-    init(locale: Locale = Locale(identifier: "en_US"), useCustomLanguageModel: Bool = false) {
+    /// Falsification probe: when true, the request gets a language model
+    /// configuration pointing at a file that does not exist. If the framework
+    /// honors `customizedLanguageModel`, recognition must fail or complain;
+    /// if it silently ignores the property, nothing changes. Used once, from
+    /// the harness (`VOICY_ENGINE=legacy-badlm`), to prove the real LM runs
+    /// above were actually exercising the property.
+    private let bogusLanguageModelForTest: Bool
+
+    init(
+        locale: Locale = Locale(identifier: "en_US"),
+        useCustomLanguageModel: Bool = false,
+        bogusLanguageModelForTest: Bool = false
+    ) {
         self.locale = locale
         self.useCustomLanguageModel = useCustomLanguageModel
+        self.bogusLanguageModelForTest = bogusLanguageModelForTest
     }
 
     /// Requests (and waits for) speech recognition permission.
@@ -48,6 +61,11 @@ final class LegacySpeechTranscriber: Transcriber {
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = false
         request.requiresOnDeviceRecognition = true
+        if bogusLanguageModelForTest {
+            request.customizedLanguageModel = SFSpeechLanguageModel.Configuration(
+                languageModel: URL(fileURLWithPath: "/nonexistent/voicy-test/model.bin")
+            )
+        }
         if !hints.isEmpty {
             request.contextualStrings = hints
             if useCustomLanguageModel {
