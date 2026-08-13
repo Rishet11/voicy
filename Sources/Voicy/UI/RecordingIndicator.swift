@@ -35,6 +35,26 @@ final class RecordingLevels {
     }
 }
 
+/// The recognizer's current, revisable reading. This is display-only state:
+/// the send path must use the finalized transcript returned by the speech
+/// session, never this provisional value.
+@MainActor
+@Observable
+final class RecordingTranscript {
+    private(set) var text = ""
+    private(set) var isProvisional = false
+
+    func update(_ text: String) {
+        self.text = text
+        isProvisional = true
+    }
+
+    func clear() {
+        text = ""
+        isProvisional = false
+    }
+}
+
 /// The pulse on the left of the pill: a coloured dot with an expanding halo.
 /// (This is a deliberate visual pulse, not the audio meter.)
 private struct RecordingDot: View {
@@ -95,9 +115,11 @@ private struct Waveform: View {
 struct RecordingIndicatorView: View {
     @Environment(\.colorScheme) private var scheme
     let levels: RecordingLevels
+    let transcript: RecordingTranscript
 
-    init(levels: RecordingLevels) {
+    init(levels: RecordingLevels, transcript: RecordingTranscript) {
         self.levels = levels
+        self.transcript = transcript
     }
 
     var body: some View {
@@ -107,7 +129,15 @@ struct RecordingIndicatorView: View {
             Waveform(bars: levels.bars)
                 .frame(width: Theme.Layout.waveformFrameSize.width,
                        height: Theme.Layout.waveformFrameSize.height)
-            Text("Recording")
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Recording")
+                if !transcript.text.isEmpty {
+                    Text(transcript.text)
+                        .font(Theme.Typography.caption())
+                        .foregroundStyle(palette.textSecondary)
+                        .lineLimit(2)
+                }
+            }
                 .font(Theme.Typography.callout(.semibold))
                 .foregroundStyle(palette.textPrimary)
         }
@@ -117,7 +147,9 @@ struct RecordingIndicatorView: View {
         .overlay(Capsule().strokeBorder(palette.border, lineWidth: 1))
         .shadow(color: .black.opacity(scheme == .dark ? 0.28 : 0.12), radius: 14, y: 5)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Recording voice message")
+        .accessibilityLabel(transcript.text.isEmpty
+                            ? "Recording voice message"
+                            : "Recording voice message. Provisional transcript: \(transcript.text)")
         .accessibilityHint("Listening for your message. Release the shortcut key to finish.")
     }
 }
@@ -128,11 +160,12 @@ struct RecordingIndicatorView: View {
 @MainActor
 public final class RecordingIndicatorController {
     private let levels = RecordingLevels()
+    private let transcript = RecordingTranscript()
     private let panel: NSPanel
     private let hosting: NSHostingView<RecordingIndicatorView>
 
     public init() {
-        let host = NSHostingView(rootView: RecordingIndicatorView(levels: levels))
+        let host = NSHostingView(rootView: RecordingIndicatorView(levels: levels, transcript: transcript))
         self.hosting = host
 
         let size = NSSize(width: Theme.Layout.pillSize.width, height: Theme.Layout.pillSize.height)
@@ -156,13 +189,23 @@ public final class RecordingIndicatorController {
 
     /// Reveal the pill at the top-center of the main screen.
     public func show() {
+        transcript.clear()
         positionTopCenter()
         panel.orderFrontRegardless()
     }
 
     /// Hide the pill.
     public func hide() {
+        transcript.clear()
         panel.orderOut(nil)
+    }
+
+    /// Updates the display with a revisable speech-engine result. This value is
+    /// intentionally not exposed as a sendable transcript or callback.
+    public func updateTranscript(_ text: String) {
+        Task { @MainActor in
+            self.transcript.update(text)
+        }
     }
 
     /// Feed a real RMS amplitude. Safe to call from the audio capture thread.
