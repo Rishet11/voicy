@@ -234,3 +234,28 @@ The onset numbers came from the real capture path on the live microphone.
 Latency medians in the 320-clip run were taken while the machine was under load
 (load average 25, four other agents building), so they read ~25% higher than
 the quiet-machine baseline; the WER and CER figures are unaffected by load.
+
+
+## Env-var seams removed (rejected approach, cleaned up)
+
+The orchestrator rejected environment gating for the shipped app: it must work
+with zero env vars and zero CLI flags. All four `VOICY_*` seams are gone:
+
+- `VOICY_TRANSCRIBER_LOCALE` -> `TranscriberLocale.requestedLocale()`: the
+  persisted `voicy.transcriberLocale` user setting, else the system locale
+  (`Locale.autoupdatingCurrent`, `@rg=...` attribute suffix stripped), else
+  `en_US` only when the system reports no locale. Every engine re-validates
+  against the machine's installed locales and falls back: same language ->
+  `en_US` -> first installed. Locale identifiers are compared after
+  attribute-stripping and `-`/`_` normalization.
+- `VOICY_ENGINE` -> `TranscriberFactory.make()` returns the shipped engine
+  only (SpeechAnalyzerTranscriber on macOS 26+, LegacySpeechTranscriber
+  below). Variant engines stay constructible directly for future A/B runs;
+  the falsification probes (`legacy-badlm`, `dictation-badlm`) are deleted.
+- `VOICY_LM_PRONUNCIATIONS` / `VOICY_LM_TEMPLATES` -> deleted together with
+  the variant code. The shipped LM is the flat PhraseCount list. Both
+  variants were measured and changed nothing (see log above).
+
+Remaining `CommandLine.arguments` reads are diagnostic subcommands only
+(`--selftest` in SelfTest, the `--test-*` harness in TestHarness); no app
+capability depends on them.
