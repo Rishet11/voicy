@@ -31,7 +31,7 @@ import Foundation
 @MainActor
 func runTestHarnessIfRequested() {
     let args = CommandLine.arguments
-    let modes = ["--test-audio", "--test-audio-suite", "--unit-tests", "--test-latency"]
+    let modes = ["--test-audio", "--test-audio-suite", "--unit-tests", "--test-latency", "--test-wer"]
     guard args.contains(where: { modes.contains($0) }) else { return }
 
     let done = CompletionFlag()
@@ -113,6 +113,10 @@ struct TestHarness {
 
         if let manifest = value(for: "--test-audio-suite") {
             failures += await runSuite(manifestPath: manifest)
+        }
+
+        if let manifest = value(for: "--test-wer") {
+            failures += await runWER(manifestPath: manifest)
         }
 
         if has("--test-latency") {
@@ -522,6 +526,187 @@ struct TestHarness {
         print("suite: \(cases.count - failures)/\(cases.count) passed")
         return failures
     }
+
+    // MARK: - WER / CER evaluation
+
+    /// Scores the recognizer itself, separately from the intent pipeline.
+    ///
+    /// The suite mode above answers "did the pipeline produce the right
+    /// recipient and body". This mode answers the different and more honest
+    /// question "how many words did the recognizer get wrong", which is the
+    /// number that moves when transcription quality actually changes. A clip can
+    /// pass the suite while mangling a name, so the suite alone cannot tell
+    /// improvement from regression.
+    ///
+    ///   --test-wer <manifest>      score every clip in the manifest
+    ///   --wer-out <file.tsv>       write per-clip scores, for later comparison
+    ///   --wer-compare <file.tsv>   print this run against an earlier --wer-out
+    private func runWER(manifestPath: String) async -> Int {
+        let manifestURL = URL(fileURLWithPath: manifestPath)
+        guard let text = try? String(contentsOf: manifestURL, encoding: .utf8) else {
+            print("wer: could not read manifest at \(manifestPath)")
+            return 1
+        }
+        let dir = manifestURL.deletingLastPathComponent()
+        let cases = AudioManifest.parse(text)
+        guard !cases.isEmpty else {
+            print("wer: manifest has no cases")
+            return 1
+        }
+
+        let contacts = await contactSet()
+        let engine = await warmEngine()
+        let hints = has("--no-hints") ? [] : contacts.flatMap { c in
+            [c.givenName, c.familyName, c.nickname, c.organizationName, c.displayName]
+                .filter { !$0.isEmpty }
+        }
+
+        struct Row {
+            let name: String
+            let reference: String
+            let hypothesis: String
+            let wer: ErrorRate.Score
+            let cer: ErrorRate.Score
+            let ms: Double
+            let failed: String?
+        }
+
+        var rows: [Row] = []
+        var missing = 0
+
+        for testCase in cases {
+            let audioURL = dir.appendingPathComponent("\(testCase.name).wav")
+            guard let pcm = try? AudioFileLoader.loadPCM(url: audioURL), !pcm.isEmpty else {
+                print("MISSING \(testCase.name): no audio at \(audioURL.path)")
+                missing += 1
+                continue
+            }
+            let start = Date()
+            var hypothesis = ""
+            var failure: String?
+            do {
+                hypothesis = try await engine.transcribe(pcm: pcm, hints: hints)
+            } catch {
+                failure = "transcribe: \(error)"
+            }
+            let ms = Date().timeIntervalSince(start) * 1000
+            if failure == nil, hypothesis.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                failure = "empty transcript from \(String(format: "%.1f", AudioFileLoader.duration(pcm))) s of audio"
+            }
+            rows.append(Row(
+                name: testCase.name,
+                reference: testCase.spoken,
+                hypothesis: hypothesis,
+                wer: ErrorRate.word(reference: testCase.spoken, hypothesis: hypothesis),
+                cer: ErrorRate.character(reference: testCase.spoken, hypothesis: hypothesis),
+                ms: ms,
+                failed: failure
+            ))
+        }
+
+        guard !rows.isEmpty else {
+            print("wer: no clips scored (\(missing) missing)")
+            return 1
+        }
+
+        print("")
+        print("=== WER / CER over \(rows.count) clip(s) ===")
+        print("\(pad("clip", 30)) \(pad("WER", 8)) \(pad("CER", 8)) \(pad("S/D/I", 10)) \(pad("ms", 8)) transcript")
+        for row in rows.sorted(by: { $0.wer.rate > $1.wer.rate }) {
+            let sdi = "\(row.wer.substitutions)/\(row.wer.deletions)/\(row.wer.insertions)"
+            print("\(pad(row.name, 30)) \(pad(pct(row.wer.rate), 8)) \(pad(pct(row.cer.rate), 8)) "
+                  + "\(pad(sdi, 10)) \(pad(fmt(row.ms), 8)) \"\(display(row.hypothesis))\"")
+            if let failed = row.failed { print("       ERROR \(failed)") }
+        }
+
+        let corpusWER = ErrorRate.corpus(rows.map(\.wer))
+        let corpusCER = ErrorRate.corpus(rows.map(\.cer))
+        let times = rows.map(\.ms)
+        print("")
+        print("corpus WER \(pct(corpusWER.rate))  (\(corpusWER.substitutions) sub, "
+              + "\(corpusWER.deletions) del, \(corpusWER.insertions) ins over \(corpusWER.referenceLength) words)")
+        print("corpus CER \(pct(corpusCER.rate))")
+        print("clean clips (WER 0): \(rows.filter { $0.wer.errors == 0 }.count)/\(rows.count)")
+        print("latency: median \(fmt(Percentile.of(times, 0.5))) ms  p95 \(fmt(Percentile.of(times, 0.95))) ms  "
+              + "max \(fmt(times.max() ?? 0)) ms")
+        if missing > 0 { print("missing audio for \(missing) clip(s)") }
+
+        // Per-variant rollup. Augmented clips are named "<base>.<variant>", so
+        // this shows which degradation (noise, gain, rate) actually costs
+        // accuracy instead of hiding it inside one corpus average.
+        let grouped = Dictionary(grouping: rows) { row -> String in
+            let parts = row.name.split(separator: ".")
+            return parts.count > 1 ? String(parts.last!) : "clean"
+        }
+        if grouped.count > 1 {
+            print("")
+            print("by variant:")
+            for key in grouped.keys.sorted() {
+                let group = grouped[key]!
+                let score = ErrorRate.corpus(group.map(\.wer))
+                let groupTimes = group.map(\.ms)
+                print("  \(pad(key, 18)) n=\(pad(String(group.count), 4)) WER \(pad(pct(score.rate), 8)) "
+                      + "CER \(pad(pct(ErrorRate.corpus(group.map(\.cer)).rate), 8)) "
+                      + "median \(fmt(Percentile.of(groupTimes, 0.5))) ms")
+            }
+        }
+
+        if let outPath = value(for: "--wer-out") {
+            let tsv = rows.map { row in
+                [row.name, String(format: "%.4f", row.wer.rate), String(format: "%.4f", row.cer.rate),
+                 String(format: "%.1f", row.ms), row.hypothesis].joined(separator: "\t")
+            }.joined(separator: "\n") + "\n"
+            do {
+                try tsv.write(to: URL(fileURLWithPath: outPath), atomically: true, encoding: .utf8)
+                print("wrote \(outPath)")
+            } catch {
+                print("could not write \(outPath): \(error)")
+            }
+        }
+
+        if let comparePath = value(for: "--wer-compare") {
+            compareWER(rows.map { ($0.name, $0.wer.rate, $0.hypothesis) }, against: comparePath)
+        }
+
+        // Every clip must produce SOME transcript. A hard failure (throw or
+        // empty output) is a bug regardless of the error rate, so it is the
+        // only thing this mode fails on. Error rates are reported, never
+        // silently thresholded: a threshold here would just get loosened.
+        let hardFailures = rows.filter { $0.failed != nil }.count + missing
+        return hardFailures
+    }
+
+    private func compareWER(_ current: [(String, Double, String)], against path: String) {
+        guard let text = try? String(contentsOfFile: path, encoding: .utf8) else {
+            print("compare: could not read \(path)")
+            return
+        }
+        var baseline: [String: (Double, String)] = [:]
+        for line in text.split(separator: "\n") {
+            let f = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+            guard f.count >= 5, let rate = Double(f[1]) else { continue }
+            baseline[f[0]] = (rate, f[4])
+        }
+        print("")
+        print("=== change vs \(path) ===")
+        var better = 0, worse = 0, same = 0
+        for (name, rate, hypothesis) in current {
+            guard let (was, wasText) = baseline[name] else {
+                print("  NEW    \(pad(name, 30)) WER \(pct(rate))")
+                continue
+            }
+            let delta = rate - was
+            if abs(delta) < 0.0001 { same += 1; continue }
+            if delta < 0 { better += 1 } else { worse += 1 }
+            print("  \(delta < 0 ? "BETTER" : "WORSE ") \(pad(name, 30)) "
+                  + "WER \(pct(was)) -> \(pct(rate))")
+            print("         was \"\(display(wasText))\"")
+            print("         now \"\(display(hypothesis))\"")
+        }
+        print("  \(better) better, \(worse) worse, \(same) unchanged")
+    }
+
+    private func pct(_ rate: Double) -> String { String(format: "%.1f%%", rate * 100) }
 
     // MARK: - Unit tests (no audio, no permissions)
 

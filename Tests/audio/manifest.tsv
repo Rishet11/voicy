@@ -30,8 +30,8 @@ name-last-long	Samantha	Send a message to Pulkit saying I will call you in ten m
 name-last-before	Samantha	Send happy new year wishes to Aarav.			notFound
 
 # --- Indian English voice. Contact-name biasing is what makes these work.
-indian-shreya	Aman	Message Shreya that I am reaching in ten minutes.	Shreya Iyer	I am reaching in ten minutes	resolved
-indian-siddharth	Aman	Tell Siddharth that the file is ready.	Siddharth Nair	the file is ready	resolved
+indian-shreya	Rishi	Message Shreya that I am reaching in ten minutes.	Shreya Iyer	I am reaching in ten minutes	resolved
+indian-siddharth	Rishi	Tell Siddharth that the file is ready.	Siddharth Nair	the file is ready	resolved
 indian-aditi	Samantha	Send a message to Aditi saying call me back.	Aditi Rao	call me back	resolved
 
 # --- British voice, to prove the engine is not tuned to one accent.
@@ -62,4 +62,4 @@ long-body	Samantha	Message Pulkit that I am leaving the office now and I will pi
 
 # --- Rejection: no command verb at all. Must not invent a recipient.
 no-verb	Samantha	What is the weather in Bangalore today.			notParsed
-verbless-siddharth	Aman	Siddharth, that the file is ready.	Siddharth Nair		resolved
+verbless-siddharth	Rishi	Siddharth, that the file is ready.	Siddharth Nair		resolved

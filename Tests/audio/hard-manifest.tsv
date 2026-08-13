@@ -1,0 +1,42 @@
+# Hard cases for WER measurement. Same tab-separated format as manifest.tsv,
+# but these are NOT pass/fail pipeline cases: they exist to put the recognizer
+# under load and produce a number. Only columns 1-3 (name, voice, spoken) are
+# used, and column 3 is the WER reference.
+#
+# Generate with: Tools/gen-test-audio.sh
+# Score with:    Voicy --test-wer Tests/audio/hard-manifest.tsv
+#
+# What makes each one hard is written above it. Nothing here is hard by
+# accident, and nothing is hard in a way a real user would never produce.
+
+# --- Long run-on with no punctuation cues. Endpointing and segment assembly
+# both have to survive; this is where a transcript gets truncated.
+hard-runon	Samantha	Tell Pulkit that I am leaving now and I will be there in about forty minutes but if the traffic is bad it could be an hour so please do not wait for me and just start the meeting without me and I will join whenever I get there
+# --- Digits, times and a phone-shaped number in one breath. Formatting is
+# normalized away by the scorer, so what is measured here is whether the words
+# survive at all.
+hard-numbers	Samantha	Message Aditi that the flight is at seven forty in the morning on the twenty third and my seat is eleven c and the booking reference is nine four two one
+# --- Code switching. This app's users are Indian English speakers who mix
+# Hindi in mid sentence; a recognizer locked to en_US drops these words.
+hard-codeswitch	Rishi	Message Shreya that I am reaching in ten minutes theek hai bas thoda traffic hai
+# --- Two contact names in one utterance, adjacent, no pause between them.
+hard-two-names	Samantha	Tell Siddharth and Aarav that the review moved to Thursday
+# --- Homophone-dense body. Every one of these has a wrong reading that is a
+# real word, so the language model cannot fall back on plausibility.
+hard-homophones	Samantha	Message Rahul that their two new offices are over there and they are right by the site we saw last week
+# --- Proper nouns that are not names: places and a product. These are the
+# words a general model has least reason to expect.
+hard-propernouns	Rishi	Tell Pulkit that the Indiranagar office moved to Koramangala and the Whitefield team is joining on Tuesday
+# --- Fast, clipped, one breath. The user is in a hurry and does not enunciate
+# the first word, which is exactly when the verb gets lost.
+hard-terse	Samantha	Text Aarav running late start without me
+# --- Spelled-out letters. Letter sequences are a known weak spot and users
+# dictate them constantly when giving codes or emails.
+hard-spelling	Samantha	Message Meera that the gate code is B four seven K and the door is on the left
+# --- Self correction mid sentence, which real dictation is full of. The
+# transcript should contain BOTH halves; silently dropping the correction is
+# worse than keeping it.
+hard-selfcorrect	Samantha	Tell Aditi the meeting is at four no sorry at five in the evening
+# --- Quiet trailing clause. Speakers drop volume at the end of a sentence and
+# that is where words get lost even in a silent room.
+hard-trailoff	Daniel	Message Pulkit that I have sent the documents already and you should have them by now

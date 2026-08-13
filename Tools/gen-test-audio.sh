@@ -16,19 +16,23 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-MANIFEST="Tests/audio/manifest.tsv"
 OUT_DIR="Tests/audio"
 FORCE=0
 [ "${1:-}" = "--force" ] && FORCE=1
 
-if [ ! -f "$MANIFEST" ]; then
-    echo "ERROR: manifest not found at $MANIFEST" >&2
-    exit 1
-fi
+# Two manifests: the pass/fail pipeline suite, and the hard cases that exist
+# only to be scored for WER.
+MANIFESTS=("Tests/audio/manifest.tsv" "Tests/audio/hard-manifest.tsv")
 
 generated=0
 skipped=0
 failed=0
+
+for MANIFEST in "${MANIFESTS[@]}"; do
+if [ ! -f "$MANIFEST" ]; then
+    echo "ERROR: manifest not found at $MANIFEST" >&2
+    exit 1
+fi
 
 # 16 kHz mono signed-little-endian Int16 in a WAVE container: exactly the
 # analysis format, so no resampling happens on the test path either.
@@ -47,6 +51,22 @@ while IFS=$'\t' read -r name voice spoken _rest || [ -n "$name" ]; do
 
     if say -v "$voice" --file-format=WAVE --data-format=LEI16@16000 -o "$out" "$spoken" 2>/dev/null; then
         bytes=$(stat -f%z "$out")
+        # `say` exits 0 even when the voice cannot actually synthesize. The
+        # Siri-backed "Aman" voice on this machine returns success and writes a
+        # 4.2 KB stub (0.13 s of nothing) for any input. A silent clip scores as
+        # a total transcription failure and would look like an engine
+        # regression, so refuse to accept one. 16 kHz 16-bit mono is 32000
+        # bytes per second; require at least 30 ms of audio per character.
+        min_bytes=$(( ${#spoken} * 960 ))
+        [ "$min_bytes" -lt 16000 ] && min_bytes=16000
+        if [ "$bytes" -lt "$min_bytes" ]; then
+            echo "  FAILED $name: voice '$voice' wrote $bytes bytes for ${#spoken} characters" \
+                 "(expected >= $min_bytes). The voice is installed but not working;" \
+                 "pick another one for this row." >&2
+            rm -f "$out"
+            failed=$((failed + 1))
+            continue
+        fi
         printf '  %-22s %-9s %7s bytes  "%s"\n' "$name" "$voice" "$bytes" "$spoken"
         generated=$((generated + 1))
     else
@@ -55,6 +75,7 @@ while IFS=$'\t' read -r name voice spoken _rest || [ -n "$name" ]; do
         failed=$((failed + 1))
     fi
 done < "$MANIFEST"
+done
 
 echo
 echo "generated $generated, skipped $skipped (already present), failed $failed"
