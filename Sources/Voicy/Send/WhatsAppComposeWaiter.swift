@@ -8,6 +8,11 @@ import Foundation
 /// failing silently — the two behaviours BUILD-STATE records as the reason the
 /// send path was never trusted.
 ///
+/// Everything it observes is read from WhatsApp's own Accessibility tree via
+/// the app's PID, so the composer never has to be focused — and WhatsApp never
+/// has to be frontmost — for the wait to succeed. That is what keeps the whole
+/// send in the background.
+///
 /// Three hard guarantees:
 ///  - **Bounded time.** `timeout` is absolute; the loop cannot outlive it.
 ///  - **Bounded attempts.** `maxAttempts` caps the poll count independently, so
@@ -17,7 +22,7 @@ import Foundation
 ///
 /// The stages are checked in dependency order, so the reported cause is the
 /// first thing actually wrong: an app that is not running is reported as
-/// `appNotRunning`, never as `composeFieldNotFocused`.
+/// `appNotRunning`, never as `composerNotFound`.
 enum WhatsAppComposeWaiter {
 
     /// Why the composer never became ready. One case per real-world cause.
@@ -27,12 +32,13 @@ enum WhatsAppComposeWaiter {
         /// Running, but it has no window we can see (still launching, or the
         /// window is closed to the menu bar).
         case windowNotFound
-        /// Window is up, but the compose field never took keyboard focus.
-        case composeFieldNotFocused
-        /// Composer focused, but the send affordance is absent — the chat is
+        /// A window is up, but no compose field is exposed in it yet (the chat
+        /// is still loading — the normal cold-start state).
+        case composerNotFound
+        /// Composer present, but the send affordance is absent — the chat is
         /// not in a sendable state (no recipient resolved, or an error sheet).
         case sendButtonNotFound
-        /// The focused field does not contain the exact confirmed body.
+        /// The composer does not contain the exact confirmed body.
         case composeTextMismatch
         /// Accessibility permission is not granted, so nothing can be observed.
         case notTrusted
@@ -41,7 +47,7 @@ enum WhatsAppComposeWaiter {
             switch self {
             case .appNotRunning: return "WhatsApp is not running"
             case .windowNotFound: return "WhatsApp has no visible window yet"
-            case .composeFieldNotFocused: return "the WhatsApp compose field never took focus"
+            case .composerNotFound: return "no compose field was found in any WhatsApp window"
             case .sendButtonNotFound: return "the WhatsApp send button was not found"
             case .composeTextMismatch: return "the WhatsApp compose text did not match the confirmed message"
             case .notTrusted: return "Accessibility permission is not granted"
@@ -59,11 +65,13 @@ enum WhatsAppComposeWaiter {
 
     /// The observations the waiter needs, injected so the polling logic is unit
     /// testable without a running WhatsApp. `live` wires the real AX tree.
+    /// All probes are window-based, never frontmost-based.
     struct Probe {
         var isTrusted: () -> Bool
         var appIsRunning: () -> Bool
         var hasWindow: () -> Bool
-        var composeFieldFocused: () -> Bool
+        /// The composer's current text, or nil when no compose field is exposed
+        /// in any WhatsApp window yet.
         var composeText: () -> String?
         var sendButtonExists: () -> Bool
         var replaceComposeText: (String) -> Bool
@@ -71,14 +79,12 @@ enum WhatsAppComposeWaiter {
         init(isTrusted: @escaping () -> Bool,
              appIsRunning: @escaping () -> Bool,
              hasWindow: @escaping () -> Bool,
-             composeFieldFocused: @escaping () -> Bool,
              composeText: @escaping () -> String?,
              sendButtonExists: @escaping () -> Bool,
              replaceComposeText: @escaping (String) -> Bool = { _ in false }) {
             self.isTrusted = isTrusted
             self.appIsRunning = appIsRunning
             self.hasWindow = hasWindow
-            self.composeFieldFocused = composeFieldFocused
             self.composeText = composeText
             self.sendButtonExists = sendButtonExists
             self.replaceComposeText = replaceComposeText
@@ -88,19 +94,20 @@ enum WhatsAppComposeWaiter {
             Probe(isTrusted: { WhatsAppAccessibility.isTrusted(prompt: false) },
                   appIsRunning: { WhatsAppAccessibility.whatsAppPID() != nil },
                   hasWindow: { WhatsAppAccessibility.whatsAppHasWindow() },
-                  composeFieldFocused: { WhatsAppAccessibility.isWhatsAppFocusedOnTextInput() },
-                  composeText: { WhatsAppAccessibility.focusedTextValue() },
+                  composeText: { WhatsAppAccessibility.composerTextValue() },
                   sendButtonExists: { WhatsAppAccessibility.whatsAppSendButtonExists() },
-                  replaceComposeText: { WhatsAppAccessibility.replaceFocusedText(with: $0) })
+                  replaceComposeText: { WhatsAppAccessibility.replaceComposerText(with: $0) })
         }
     }
 
     /// Timing knobs. Defaults are the shipped values; there is no env var or
     /// flag behind them. Tests inject a fake clock so they run instantly.
+    /// The 12 s timeout covers a cold WhatsApp launch, where the window and the
+    /// composer can take several seconds to appear after the deep link opens.
     struct Options {
-        var timeout: TimeInterval = 5.0
+        var timeout: TimeInterval = 12.0
         var pollInterval: TimeInterval = 0.05
-        var maxAttempts: Int = 200
+        var maxAttempts: Int = 240
         /// Monotonic-ish source of "now", in seconds.
         var now: () -> TimeInterval = { Date().timeIntervalSinceReferenceDate }
         /// Blocking wait between polls.
@@ -147,9 +154,9 @@ enum WhatsAppComposeWaiter {
         if !probe.isTrusted() { return .notTrusted }
         if !probe.appIsRunning() { return .appNotRunning }
         if !probe.hasWindow() { return .windowNotFound }
-        if !probe.composeFieldFocused() { return .composeFieldNotFocused }
+        guard let text = probe.composeText() else { return .composerNotFound }
         if !probe.sendButtonExists() { return .sendButtonNotFound }
-        if let expectedText, probe.composeText() != expectedText {
+        if let expectedText, text != expectedText {
             guard probe.replaceComposeText(expectedText), probe.composeText() == expectedText else {
                 return .composeTextMismatch
             }

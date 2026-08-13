@@ -1,8 +1,21 @@
 import AppKit
 import Foundation
 
-/// Orchestrates the confirmed WhatsApp send path: open, verify, then post one
-/// Return. No keystroke is possible before the guard accepts confirmation.
+/// How the ready composer was submitted, used for logging only.
+enum WhatsAppSubmitKind: Equatable {
+    case pressedButton
+    case postedReturn
+}
+
+/// Orchestrates the confirmed WhatsApp send path: open in the background,
+/// verify, then submit. No keystroke or button press is possible before the
+/// guard accepts confirmation.
+///
+/// The whole path runs without WhatsApp ever becoming frontmost: the deep link
+/// is opened with `activates = false`, the composer is verified through
+/// WhatsApp's own Accessibility tree (by PID, not by focus), and the message is
+/// submitted by pressing the AX send button or by delivering a Return directly
+/// to WhatsApp's PID.
 ///
 /// Every decision about *whether* to open anything lives in `SendGuard`, which
 /// is pure and unit-tested. This type only performs the effect the guard
@@ -13,19 +26,23 @@ import Foundation
 final class WhatsAppSender {
     /// Clear, machine-checkable outcome of a send attempt.
     enum Outcome: Equatable {
-        /// Deep link opened and the composer was observed ready: WhatsApp is
-        /// frontmost with the message sitting UNSENT in the composer. Nothing
-        /// has left the account. This is the only non-refusal outcome the app
-        /// can produce.
+        /// Deep link opened, but auto-send is unavailable: WhatsApp (still in
+        /// the background) has the message sitting UNSENT in the composer.
+        /// Nothing has left the account. This is the only non-refusal outcome
+        /// the app can produce without Accessibility.
         case prefilled
-        /// The exact confirmed body was verified in the focused composer and
-        /// one Return was posted.
+        /// The exact confirmed body was verified in the composer, the send was
+        /// submitted, and WhatsApp cleared the composer afterwards.
         case sentVerified
+        /// The send was submitted, but the composer never cleared within the
+        /// verification window, so delivery cannot be confirmed. The message
+        /// was submitted exactly once and is never retried.
+        case sentUnverified
         /// Deep link opened, but the composer never became ready within the
         /// timeout. The message may still be sitting there; the user has to
         /// look. `reason` names the specific stage that failed.
         case prefilledNotReady(reason: String)
-        /// Dry-run: nothing was opened or posted; this is the log of intent.
+        /// Dry-run: nothing was opened or submitted; this is the log of intent.
         case dryRun
         /// Killed by the blocklist before anything happened. `contact` is
         /// already masked: numbers are reduced to their last 4 digits, because
@@ -45,19 +62,34 @@ final class WhatsAppSender {
     private let probe: WhatsAppComposeWaiter.Probe
     private let waitOptions: WhatsAppComposeWaiter.Options
     /// Injected so tests can exercise the open path without launching anything.
+    /// The default opens the deep link without activating WhatsApp, so the
+    /// user's current app keeps focus.
     private let openURL: (URL) -> Bool
-    private let postReturn: () -> Void
+    /// Injected submission primitive. The default presses WhatsApp's AX send
+    /// button, falling back to a Return delivered straight to WhatsApp's PID.
+    /// Neither path ever requires WhatsApp to be frontmost.
+    private let submitSend: () -> WhatsAppSubmitKind?
+    /// Injected post-send verification: true when the composer no longer holds
+    /// the expected body. The default reads WhatsApp's AX composer by PID.
+    private let composeCleared: (String) -> Bool
 
     init(blocklist: Blocklist = .load(),
          probe: WhatsAppComposeWaiter.Probe = .live,
          waitOptions: WhatsAppComposeWaiter.Options = WhatsAppComposeWaiter.Options(),
-         openURL: @escaping (URL) -> Bool = { NSWorkspace.shared.open($0) },
-         postReturn: @escaping () -> Void = { WhatsAppAccessibility.postReturn() }) {
+         openURL: @escaping (URL) -> Bool = { url in
+             let configuration = NSWorkspace.OpenConfiguration()
+             configuration.activates = false
+             NSWorkspace.shared.open(url, configuration: configuration)
+             return true
+         },
+         submitSend: @escaping () -> WhatsAppSubmitKind? = { WhatsAppAccessibility.submitSend() },
+         composeCleared: @escaping (String) -> Bool = { WhatsAppAccessibility.composerCleared(expected: $0) }) {
         self.blocklist = blocklist
         self.probe = probe
         self.waitOptions = waitOptions
         self.openURL = openURL
-        self.postReturn = postReturn
+        self.submitSend = submitSend
+        self.composeCleared = composeCleared
     }
 
     /// Primary entry point.
@@ -71,8 +103,9 @@ final class WhatsAppSender {
     ///     default is deliberate: a future call site that forgets this argument
     ///     gets a dry run, so a bug can fail to deliver a message but can never
     ///     deliver one to the wrong person.
-    /// - Returns: `.prefilled` at best. Never a "sent" state, because this code
-    ///   cannot send.
+    /// - Returns: see `Outcome`. Only `.sentVerified` claims a send, and only
+    ///   after the composer was observed cleared; everything else is explicit
+    ///   about what did or did not happen.
     func send(phone: String, body: String, contactName: String? = nil, dryRun: Bool = true) async -> Outcome {
         let decision = SendGuard.decide(phone: phone,
                                         contactName: contactName,
@@ -100,8 +133,8 @@ final class WhatsAppSender {
             // Never log the body content (CLAUDE.md: no message bodies in logs)
             // and never the full number (last 4 only).
             log("DRY-RUN target=\(SendGuard.maskPhone(phone)) body=\(body.count) char(s) [content redacted]")
-            log("DRY-RUN  1. would open the deep link via NSWorkspace (pre-fills composer)")
-            log("DRY-RUN  2. would verify exact composer text, then post one Return")
+            log("DRY-RUN  1. would open the deep link via NSWorkspace without activating WhatsApp")
+            log("DRY-RUN  2. would verify exact composer text, then submit via the AX send button")
             log("DRY-RUN  blocklist loaded: \(self.blocklist.count) entry(ies)")
             log("DRY-RUN  NOTHING was opened or typed.")
             return .dryRun
@@ -120,16 +153,21 @@ final class WhatsAppSender {
             return .failed("could not build deep link")
         }
 
-        log("OPEN whatsapp://send?phone=\(SendGuard.maskPhone(phone)) [body redacted]")
+        log("OPEN whatsapp://send?phone=\(SendGuard.maskPhone(phone)) [body redacted] (non-activating: WhatsApp stays in the background)")
         guard openURL(url) else {
             log("FAIL: NSWorkspace.open returned false")
             return .failed("NSWorkspace.open failed")
         }
 
-        WhatsAppAccessibility.activateIfNeeded()
+        // The open is non-activating, so focus should never leave the user's
+        // app. If the system brought WhatsApp forward anyway (a cold-launch
+        // quirk on some macOS versions), hand focus straight back on the way
+        // out.
+        let previousFrontmost = NSWorkspace.shared.frontmostApplication
+        defer { WhatsAppAccessibility.restoreFrontmostIfWhatsApp(previous: previousFrontmost) }
 
         // Without Accessibility we can still honestly report the deep-link
-        // prefill, but we cannot authorize an automated Return. This is the
+        // prefill, but we cannot authorize an automated submit. This is the
         // explicit non-auto-send outcome, not a success claim.
         guard probe.isTrusted() else {
             log("ABORT: Accessibility permission is not granted; message remains prefilled and unsent")
@@ -138,10 +176,17 @@ final class WhatsAppSender {
 
         switch await confirmComposerReady(expectedText: body) {
         case .ready:
-            log("POST Return after exact composer verification")
-            postReturn()
-            log("SEND: Return posted once after explicit Voicy confirmation")
-            return .sentVerified
+            guard let kind = submitSend() else {
+                log("FAIL: WhatsApp disappeared before the message could be submitted")
+                return .failed("WhatsApp quit during send")
+            }
+            log("SUBMIT \(kind == .pressedButton ? "AX press on the send button" : "Return delivered to WhatsApp's PID") after exact composer verification")
+            if await confirmComposerCleared(expected: body) {
+                log("VERIFY: composer cleared; message submitted")
+                return .sentVerified
+            }
+            log("VERIFY: composer still holds the message after submit; delivery cannot be confirmed")
+            return .sentUnverified
         case .notReady(let cause, let attempts, let elapsedMs, let timedOut):
             log(String(format: "NOT READY: %@ (%d poll(s), %.0f ms, %@)",
                        cause.reason, attempts, elapsedMs,
@@ -158,6 +203,21 @@ final class WhatsAppSender {
     /// have verified something. That keeps the Tier-1-only path fully working.
     private func confirmComposerReady(expectedText: String) async -> WhatsAppComposeWaiter.Result {
         return WhatsAppComposeWaiter.wait(probe: probe, expectedText: expectedText, options: waitOptions)
+    }
+
+    /// Waits (bounded, ~2.5 s) for the composer to clear after submission, so
+    /// `sentVerified` means something the app actually observed rather than a
+    /// hope. The message is never resubmitted either way.
+    private func confirmComposerCleared(expected: String) async -> Bool {
+        let start = waitOptions.now()
+        var attempts = 0
+        while attempts < 50 {
+            attempts += 1
+            if composeCleared(expected) { return true }
+            if waitOptions.now() - start > 2.5 { break }
+            waitOptions.sleep(0.05)
+        }
+        return false
     }
 
     private func log(_ message: String) {

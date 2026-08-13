@@ -87,9 +87,9 @@ func runSendGuardTests() async -> (passed: Int, failed: Int) {
     // MARK: Composer wait — one case per failure cause
 
     func probe(trusted: Bool = true, running: Bool = true, window: Bool = true,
-               focused: Bool = true, text: String? = "hello", button: Bool = true) -> WhatsAppComposeWaiter.Probe {
+               text: String? = "hello", button: Bool = true) -> WhatsAppComposeWaiter.Probe {
         WhatsAppComposeWaiter.Probe(isTrusted: { trusted }, appIsRunning: { running },
-                                    hasWindow: { window }, composeFieldFocused: { focused },
+                                    hasWindow: { window },
                                     composeText: { text },
                                     sendButtonExists: { button })
     }
@@ -115,17 +115,17 @@ func runSendGuardTests() async -> (passed: Int, failed: Int) {
 
     t.equal(causeOf(probe(trusted: false)), .notTrusted, "no Accessibility -> notTrusted")
     t.equal(causeOf(probe(running: false)), .appNotRunning, "WhatsApp not running -> appNotRunning")
-    t.equal(causeOf(probe(running: true, focused: false)), .composeFieldNotFocused,
-            "WhatsApp running but not frontmost is not unavailable")
+    t.equal(causeOf(probe(running: true, text: nil)), .composerNotFound,
+            "WhatsApp running with no compose field exposed -> composerNotFound")
     t.equal(causeOf(probe(window: false)), .windowNotFound, "no window -> windowNotFound")
-    t.equal(causeOf(probe(focused: false)), .composeFieldNotFocused,
-            "composer not focused -> composeFieldNotFocused")
+    t.equal(causeOf(probe(text: nil)), .composerNotFound,
+            "no compose field in any window -> composerNotFound")
     t.equal(causeOf(probe(button: false)), .sendButtonNotFound,
             "no send button -> sendButtonNotFound")
 
     // Causes are reported in dependency order: the FIRST thing wrong wins, so
-    // a not-running app is never misreported as an unfocused composer.
-    t.equal(causeOf(probe(running: false, window: false, focused: false, button: false)),
+    // a not-running app is never misreported as a missing composer.
+    t.equal(causeOf(probe(running: false, window: false, text: nil, button: false)),
             .appNotRunning, "the earliest unsatisfied stage is the reported cause")
 
     // Ready path.
@@ -139,19 +139,18 @@ func runSendGuardTests() async -> (passed: Int, failed: Int) {
     var polls = 0
     let flaky = WhatsAppComposeWaiter.Probe(isTrusted: { true }, appIsRunning: { true },
                                             hasWindow: { true },
-                                            composeFieldFocused: { polls += 1; return polls >= 4 },
-                                            composeText: { "hello" },
+                                            composeText: { polls += 1; return polls >= 4 ? "hello" : nil },
                                             sendButtonExists: { true })
     if case .ready(let attempts, _) = WhatsAppComposeWaiter.wait(probe: flaky, options: fastOptions()) {
-        t.equal(attempts, 4, "the waiter keeps polling until the composer focuses")
+        t.equal(attempts, 4, "the waiter keeps polling until the composer appears")
     } else {
-        t.check(false, "a composer that focuses on the 4th poll must be seen as ready")
+        t.check(false, "a composer that appears on the 4th poll must be seen as ready")
     }
 
     // Bounded by the clock. 1.0s / 0.05s poll = 19 polls before the next sleep
     // would cross the timeout. The point is that it terminates and says so.
     if case .notReady(_, let attempts, _, let timedOut) =
-        WhatsAppComposeWaiter.wait(probe: probe(focused: false), options: fastOptions(timeout: 1.0)) {
+        WhatsAppComposeWaiter.wait(probe: probe(text: nil), options: fastOptions(timeout: 1.0)) {
         t.check(timedOut, "an unsatisfied wait reports timedOut")
         t.check(attempts > 1 && attempts <= 21, "clock-bounded wait polls a sane number of times",
                 "attempts=\(attempts)")
@@ -196,10 +195,12 @@ func runSendGuardTests() async -> (passed: Int, failed: Int) {
 
     func sender(_ blocklist: Blocklist, spy: OpenSpy,
                 probe p: WhatsAppComposeWaiter.Probe = probe(),
-                returnCount: Counter = Counter()) -> WhatsAppSender {
+                submitted: Counter = Counter(),
+                cleared: @escaping (String) -> Bool = { _ in true }) -> WhatsAppSender {
         WhatsAppSender(blocklist: blocklist, probe: p, waitOptions: fastOptions(),
                        openURL: { spy.open($0) },
-                       postReturn: { returnCount.value += 1 })
+                       submitSend: { submitted.value += 1; return .postedReturn },
+                       composeCleared: cleared)
     }
 
     final class Counter: @unchecked Sendable { var value = 0 }
@@ -245,27 +246,27 @@ func runSendGuardTests() async -> (passed: Int, failed: Int) {
     t.equal(liveSpy.opened, 1, "the live path opens the deep link exactly once")
 
     let liveReturns = Counter()
-    let liveWithReturn = await sender(openList, spy: OpenSpy(), returnCount: liveReturns)
+    let liveWithReturn = await sender(openList, spy: OpenSpy(), submitted: liveReturns)
         .send(phone: firstContact, body: "hello", contactName: "Pulkit", dryRun: false)
     t.equal(liveWithReturn, .sentVerified, "verified composer reports sent")
-    t.equal(liveReturns.value, 1, "one confirmation posts exactly one Return")
+    t.equal(liveReturns.value, 1, "one confirmation submits exactly once")
 
     // Live path where the composer never appears: the outcome names the cause
     // instead of claiming success.
     let stuckSpy = OpenSpy()
-    let stuck = await sender(openList, spy: stuckSpy, probe: probe(focused: false))
+    let stuck = await sender(openList, spy: stuckSpy, probe: probe(text: nil))
         .send(phone: firstContact, body: "hello", contactName: "Pulkit", dryRun: false)
-    t.equal(stuck, .prefilledNotReady(reason: WhatsAppComposeWaiter.Failure.composeFieldNotFocused.reason),
+    t.equal(stuck, .prefilledNotReady(reason: WhatsAppComposeWaiter.Failure.composerNotFound.reason),
             "an unready composer is reported with its specific cause")
     t.equal(stuckSpy.opened, 1, "the unready path still opened the link once")
 
     let mismatchReturns = Counter()
     let mismatch = await sender(openList, spy: OpenSpy(), probe: probe(text: "different"),
-                                returnCount: mismatchReturns)
+                                submitted: mismatchReturns)
         .send(phone: firstContact, body: "hello", contactName: "Pulkit", dryRun: false)
     t.equal(mismatch, .prefilledNotReady(reason: WhatsAppComposeWaiter.Failure.composeTextMismatch.reason),
-            "text mismatch aborts before Return")
-    t.equal(mismatchReturns.value, 0, "text mismatch never posts Return")
+            "text mismatch aborts before submit")
+    t.equal(mismatchReturns.value, 0, "text mismatch never submits")
 
     // A stale composer is replaced through the injected Accessibility setter,
     // then read back exactly before Return is authorized.
@@ -273,7 +274,7 @@ func runSendGuardTests() async -> (passed: Int, failed: Int) {
     var replacements = 0
     let replacementProbe = WhatsAppComposeWaiter.Probe(
         isTrusted: { true }, appIsRunning: { true }, hasWindow: { true },
-        composeFieldFocused: { true }, composeText: { composerText },
+        composeText: { composerText },
         sendButtonExists: { true },
         replaceComposeText: { expected in
             replacements += 1
@@ -282,25 +283,37 @@ func runSendGuardTests() async -> (passed: Int, failed: Int) {
         })
     let replacementReturns = Counter()
     let replacement = await sender(openList, spy: OpenSpy(), probe: replacementProbe,
-                                   returnCount: replacementReturns)
+                                   submitted: replacementReturns)
         .send(phone: firstContact, body: "new confirmed body", contactName: "Pulkit", dryRun: false)
     t.equal(replacement, .sentVerified, "stale composer is replaced before send")
     t.equal(composerText, "new confirmed body", "composer contains exactly the new body")
     t.equal(replacements, 1, "stale composer is replaced once")
-    t.equal(replacementReturns.value, 1, "exact replacement permits one Return")
+    t.equal(replacementReturns.value, 1, "exact replacement permits one submit")
 
     let failedReplacement = WhatsAppComposeWaiter.Probe(
         isTrusted: { true }, appIsRunning: { true }, hasWindow: { true },
-        composeFieldFocused: { true }, composeText: { "stale text" },
+        composeText: { "stale text" },
         sendButtonExists: { true }, replaceComposeText: { _ in false })
     let failedReplacementReturns = Counter()
     let failedReplacementOutcome = await sender(openList, spy: OpenSpy(), probe: failedReplacement,
-                                               returnCount: failedReplacementReturns)
+                                               submitted: failedReplacementReturns)
         .send(phone: firstContact, body: "new confirmed body", contactName: "Pulkit", dryRun: false)
     t.equal(failedReplacementOutcome,
             .prefilledNotReady(reason: WhatsAppComposeWaiter.Failure.composeTextMismatch.reason),
             "failed exact replacement aborts with a named mismatch")
-    t.equal(failedReplacementReturns.value, 0, "failed exact replacement never posts Return")
+    t.equal(failedReplacementReturns.value, 0, "failed exact replacement never submits")
+
+    // The submit ran but the composer never cleared: Voicy reports the message
+    // as unverified instead of claiming a send it could not observe. Nothing
+    // is ever resubmitted.
+    let unclearedSpy = OpenSpy()
+    let unclearedReturns = Counter()
+    let uncleared = await sender(openList, spy: unclearedSpy, submitted: unclearedReturns,
+                                 cleared: { _ in false })
+        .send(phone: firstContact, body: "hello", contactName: "Pulkit", dryRun: false)
+    t.equal(uncleared, .sentUnverified, "an uncleared composer is reported as sentUnverified")
+    t.equal(unclearedSpy.opened, 1, "the unverified path still opened the link once")
+    t.equal(unclearedReturns.value, 1, "the unverified path submitted exactly once and never retried")
 
     // Without Accessibility the send still works and reports honestly rather
     // than blocking on an observation it cannot make (Tier-1-only path).

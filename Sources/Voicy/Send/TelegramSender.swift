@@ -59,7 +59,7 @@ final class TelegramSender {
          probe: TelegramComposeWaiter.Probe = .live,
          waitOptions: TelegramComposeWaiter.Options = TelegramComposeWaiter.Options(),
          openURL: @escaping (URL) -> Bool = { NSWorkspace.shared.open($0) },
-         postReturn: @escaping () -> Void = { WhatsAppAccessibility.postReturn() },
+         postReturn: @escaping () -> Void = { TelegramAccessibility.postReturn() },
          isInstalled: @escaping () -> Bool = { TelegramAccessibility.isInstalled() }) {
         self.blocklist = blocklist
         self.probe = probe

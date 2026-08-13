@@ -495,10 +495,11 @@ final class Pipeline {
         }
 
         // ONE outbound path, always: WhatsAppSender checks the kill switch and
-        // the blocklist, then opens the deep link and stops. There is no
-        // synthetic-Return branch. Automating WhatsApp's send is a permanent-ban
-        // risk decision is the owner's. The sender still requires explicit
-        // Voicy confirmation and exact AX verification before one Return.
+        // the blocklist, opens the deep link without activating WhatsApp, and
+        // submits in the background (AX press on the send button, with a
+        // PID-targeted Return fallback). The sender still requires explicit
+        // Voicy confirmation and exact AX verification before one submit, and
+        // only claims a send after observing the composer clear.
         Task { @MainActor [weak self] in
             guard let self else { return }
             let outcome = await self.whatsAppSender.send(phone: e164, body: body,
@@ -519,6 +520,11 @@ final class Pipeline {
                     self.persistAlias(spoken: spoken, recipient: recipient)
                 }
                 self.tellUserMessageSent()
+            case .sentUnverified:
+                // Submitted, but the composer never cleared: delivery cannot be
+                // confirmed, so the name is not learned and the user is told to
+                // check rather than being told it sent.
+                self.tellUserSendUnverified()
             case .prefilledNotReady:
                 self.present(failure: .whatsappUnavailable)
             case .blocked, .failed, .dryRun, .notAllowlisted:
@@ -561,6 +567,22 @@ final class Pipeline {
         let alert = NSAlert()
         alert.messageText = "Message sent"
         alert.informativeText = "WhatsApp confirmed the message was submitted after Voicy verified the exact composer text."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
+    /// The submit ran in the background but the composer never cleared, so
+    /// delivery cannot be confirmed. Voicy never claims a send it could not
+    /// verify, and it never resubmits, so nothing can be sent twice.
+    private func tellUserSendUnverified() {
+        let alert = NSAlert()
+        alert.messageText = "Message may not have been sent"
+        alert.informativeText = """
+            Voicy submitted the message in the background, but WhatsApp did not confirm the composer cleared. Check WhatsApp before resending.
+
+            The message was not resubmitted automatically, so nothing can be sent twice.
+            """
         alert.alertStyle = .informational
         alert.addButton(withTitle: "OK")
         alert.runModal()

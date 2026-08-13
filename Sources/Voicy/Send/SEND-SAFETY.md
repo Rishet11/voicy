@@ -7,9 +7,49 @@ record what changed.
 
 ## 1. Audit map (as found)
 
+The two paths immediately below describe the current tree; the lettered
+paths that follow are the historical audit this file was written around.
+
 Files read in full: `Send/WhatsAppSender.swift`, `Send/WhatsAppAccessibility.swift`,
 `Send/WhatsAppDeepLink.swift`, `Send/Blocklist.swift`, plus the callers in
 `Core/Pipeline.swift` and `UI/ConfirmPanel.swift`.
+
+### Path A (current): confirm card -> background auto-send
+
+`WhatsAppSender.send` (only reachable from the confirmed card via
+`Pipeline.handleSend` with `dryRun: false`) now:
+
+- opens `whatsapp://send?...` with `NSWorkspace.OpenConfiguration.activates = false`,
+  so WhatsApp never takes focus from the user's app
+- captures the previous frontmost app and, if the system brought WhatsApp
+  forward anyway (cold-launch quirk), restores it on the way out
+- polls WhatsApp's AX tree by PID — window, composer, send button, exact body —
+  for up to 12 s (covers cold launch); a stale/missing prefill is repaired by
+  writing the exact confirmed body through Accessibility and reading it back
+- submits exactly once: AX press on the send button, falling back to a Return
+  delivered to WhatsApp's PID via `CGEventPostToPid` (never a system-wide
+  `CGEventPost`, which would require focus)
+- then verifies the composer cleared. Cleared -> `sentVerified`. Not cleared ->
+  `sentUnverified`, which the UI reports as "Message may not have been sent";
+  the message is never resubmitted.
+
+Answers for this path:
+
+- Without explicit human confirmation? No. Same confirm card gate, which shows
+  contact name, phone number and exact message together.
+- Without a user keystroke? Yes, but only after the mandatory Voicy
+  confirmation, exact AX verification, and only in a way that never activates
+  WhatsApp.
+- Wrong-recipient risk? The composer search prefers the `AXTextArea` chat
+  composer over the `AXTextField` search box, so the search field cannot be
+  mistaken for the composer. The deep link itself targets the phone.
+
+### Path B (removed): confirm card -> frontmost auto-send
+
+The previous implementation opened the deep link with an activating
+`NSWorkspace.open`, called `activateIfNeeded()`, required
+`frontmostIsWhatsApp()`, and posted a system-wide Return. Every one of those
+steps has been removed or replaced by the PID-targeted equivalents above.
 
 ### Path A: confirm card -> auto-send with a synthesized Return (FATAL, removed)
 

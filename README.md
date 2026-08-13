@@ -74,7 +74,7 @@ The on-device FoundationModels cleanup pass is not in the live path.
 
 ### 4. Sending it without a WhatsApp API
 
-Voicy does not use a WhatsApp API or speak to WhatsApp's servers. It opens the real app with a `whatsapp://send` link. After you confirm on Voicy's card, Voicy posts Return for you, but only if WhatsApp is focused and the composer contains exactly the expected text. Otherwise it aborts with a named error and leaves the message prefilled unsent. A send goes to any contact you confirm; there is no fixed recipient list.
+Voicy does not use a WhatsApp API or speak to WhatsApp's servers. It opens the real app with a `whatsapp://send` link that never brings WhatsApp to the foreground. After you confirm on Voicy's card, Voicy submits in the background: it presses WhatsApp's send button through the Accessibility API (with a Return delivered straight to WhatsApp's PID as fallback), only after the composer contains exactly the expected text, and it verifies the composer cleared before claiming a send. Otherwise it aborts with a named error and leaves the message prefilled unsent. A send goes to any contact you confirm; there is no fixed recipient list.
 
 ---
 
@@ -167,8 +167,8 @@ Prints the real state of every permission, whether WhatsApp was found, and which
                                             │
                                             ▼
    WhatsApp   ◀──   Confirm    ◀──   Who + what
-  (deep link)       card              (character offsets,
-                 (never steals         formatted locally)
+  (background       card              (character offsets,
+   deep link)     (never steals         formatted locally)
                     focus)
 ```
 
@@ -187,8 +187,9 @@ Software READMEs usually oversell. Here's the real state.
 - Recipient matching at 90.9% top-1 accuracy across a 72-case evaluation, with 100% correct refusal and 0.0% wrong-person sends
 - Contact resolution with fuzzy and phonetic matching, plus learned aliases
 - Confirm card that never steals focus from your current app
-- Message pre-filled in WhatsApp via a deep link
-- Auto-send after confirmation: Voicy posts Return when WhatsApp is focused and the composer holds exactly the expected text; any mismatch aborts with a named error and the message stays unsent
+- Message pre-filled in WhatsApp via a deep link that never activates WhatsApp
+- Auto-send after confirmation, fully in the background: Voicy presses WhatsApp's send button through the Accessibility API (PID-targeted Return fallback) once the composer holds exactly the expected text, then verifies the composer cleared. Any mismatch aborts with a named error and the message stays unsent; WhatsApp never takes focus
+- Cold-start support: a 12-second readiness window covers WhatsApp launching from quit, with a direct composer-write fallback when the deep link's prefill has not landed
 - Deterministic deletion-only disfluency cleanup in the live path, with no hardcoded filler list
 - Self-test reporting real permission and environment state
 
