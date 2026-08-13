@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voicy: the pitch, including the parts that do not work</title>
+<meta name="description" content="What Voicy is, who has the problem, the demo in three beats, why the trust posture matters, what we deliberately did not build, and what is still unproven.">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to main content</a>
+
+<nav class="pitch-nav" aria-label="Pitch sections">
+  <div class="wrap">
+    <a class="back" href="index.html">&larr; Voicy</a>
+    <a href="#problem">Problem</a>
+    <a href="#built">What we built</a>
+    <a href="#demo">Demo</a>
+    <a href="#trust">Trust</a>
+    <a href="#numbers">Numbers</a>
+    <a href="#didnt">Did not build</a>
+    <a href="#unproven">Unproven</a>
+  </div>
+</nav>
+
+<main id="main">
+
+  <section class="pitch-hero">
+    <div class="wrap">
+      <p class="eyebrow">for judges, and for anyone reading this sceptically</p>
+      <h1>The pitch, with the weak parts left in</h1>
+      <p class="lede">Everything below is either something we measured or something we are explicitly labelling as unmeasured. If a claim is not on this page, we could not back it, which is why the landing page has no user count, no testimonial and no accuracy number.</p>
+    </div>
+  </section>
+
+  <div class="pitch-body">
+    <div class="wrap">
+
+      <section class="pitch-block" id="problem" aria-labelledby="p1">
+        <h2 id="p1">The problem, in one sentence</h2>
+        <p class="one-line">Replying to a message is a thirty second job that costs five minutes, because the cost is not typing, it is leaving what you were doing.</p>
+        <h3>Who has it</h3>
+        <p>People who spend the day in one focused application and carry a messaging backlog in the other. In our research corpus the loudest version of this is not forgetfulness, it is initiation friction: a 306-point r/productivity thread titled "Why can I do a 2-hour task but not a 5-minute one", where the top comment lands on <em>"remembering the task isn't really the problem. Starting is."</em> The r/ADHD version of the same thread, 1,295 points, describes freezing on a reply the author knows takes thirty seconds.</p>
+        <p>That distinction changed what we built. A tool that reminds you to reply attacks memory, which is the wrong mechanism. A tool that removes the context switch attacks the actual cost.</p>
+        <p>Second, narrower problem, and the reason there is a rule about it: people do not trust dictation tools with their own sentences. The complaint is not that the tool mishears, it is that it hears correctly and then improves the result.</p>
+      </section>
+
+      <section class="pitch-block" id="built" aria-labelledby="p2">
+        <h2 id="p2">What we built</h2>
+        <p>A macOS menu bar app. You hold <kbd>Ctrl</kbd><kbd>Space</kbd>, say who and what, and WhatsApp Desktop opens on the right chat with your exact words already in the input box. A confirm card shows you the matched contact and the message before anything happens.</p>
+        <p>Three decisions do most of the work:</p>
+        <ul class="facts">
+          <li><strong>The message body is a slice, not a generation.</strong> Voicy finds the character range of your message inside the transcript and passes those characters through. There is no rewriting step in the pipeline to fail.</li>
+          <li><strong>Ambiguity resolves to a question.</strong> Two contacts named Rahul, or a name the recognizer destroyed, stops the flow. It never picks the most likely one.</li>
+          <li><strong>No WhatsApp API, ever.</strong> A <code>whatsapp://send</code> deep link, the scheme WhatsApp publishes for click-to-chat buttons on the web. Automation libraries that reimplement the private protocol get accounts permanently banned, and that risk is not worth a feature.</li>
+        </ul>
+      </section>
+
+      <section class="pitch-block" id="demo" aria-labelledby="p3">
+        <h2 id="p3">The demo, in three beats</h2>
+        <ol class="beats">
+          <li>
+            <strong>The happy path.</strong>
+            <p>Hold the key, say "message Pulkit that I'll be late". Confirm card appears with the right contact and the exact sentence. Press Enter. WhatsApp opens with the text in place. No app switch, no scrolling, no typing.</p>
+          </li>
+          <li>
+            <strong>The failure, on purpose.</strong>
+            <p>Say a name the recognizer mangles. It comes back as "Polka" and resolves to nobody, so Voicy asks instead of guessing. Correct it once. Say it again and it resolves instantly, because the alias is now stored locally.</p>
+          </li>
+          <li>
+            <strong>The refusal.</strong>
+            <p>Say something that is not a message. Voicy rejects it rather than inventing a recipient. Then show the blocklist: a number on it can never be auto-sent to, and if the blocklist file is corrupt, every auto-send is refused rather than allowed through.</p>
+          </li>
+        </ol>
+        <p>Beat two is the one that matters. Any demo can show a happy path. Showing the tool fail safely, then learn, is the actual argument.</p>
+      </section>
+
+      <section class="pitch-block" id="trust" aria-labelledby="p4">
+        <h2 id="p4">Why the trust posture is the product</h2>
+        <p>The loudest objection to every voice product is not accuracy, it is the microphone. A 28,000-point r/YouShouldKnow thread about a phone app listening in the background is the ambient context any voice tool launches into. One widely read teardown of a competitor put the objection plainly, and it is about screenshots rather than audio, which is the point:</p>
+        <blockquote class="quote">
+          <p>&ldquo;I want a microphone, not a surveillance tool.&rdquo;</p>
+          <cite>Ryan Shrott, <a href="https://medium.com/@ryanshrott/why-i-cancelled-my-wispr-flow-subscription-and-what-im-using-instead-d783433f4411">Medium</a></cite>
+        </blockquote>
+        <p>So the posture is not a privacy policy, it is four properties you can check in the source:</p>
+        <ul class="facts">
+          <li><strong>Pull to mic, never always on.</strong> The microphone opens on key-down and closes on key-up. There is no wake word, no ambient buffer, no listening state the app can be in without your hand on a key.</li>
+          <li><strong>On device.</strong> Transcription runs on Apple's Speech framework locally. Contact matching runs against your local address book. There is no server and no API key in the repository.</li>
+          <li><strong>A visible kill switch.</strong> The blocklist is a plain JSON file of numbers that can never be auto-sent to, and it fails closed: unparseable means refuse everything.</li>
+          <li><strong>Export and erase.</strong> The only persistent state is the alias file, plain JSON in Application Support. Read it, copy it, or delete it. Deleting it costs you learned name mappings and nothing else, because message content is never written there in the first place.</li>
+        </ul>
+        <p>We also fixed a violation of our own rule during the build: an early version printed transcripts to stdout, which becomes a file when the app runs as a bundle. That was message content on disk. It now logs lengths, and phone numbers are masked to the last four digits.</p>
+      </section>
+
+      <section class="pitch-block" id="numbers" aria-labelledby="p5">
+        <h2 id="p5">The numbers, and how they were taken</h2>
+        <p>These are not stopwatch estimates. There is an audio injection harness that feeds pre-recorded speech into the real pipeline, the same code path the microphone feeds, so latency is measured rather than guessed.</p>
+        <table class="ledger">
+          <caption>Measured on one Apple Silicon Mac, macOS 26, over 22 clips and three runs</caption>
+          <thead>
+            <tr><th scope="col">Stage</th><th scope="col">Measured</th><th scope="col">Budget we set</th></tr>
+          </thead>
+          <tbody>
+            <tr><th scope="row">Key-down to microphone recording</th><td class="num">31.5 ms</td><td>100 ms</td></tr>
+            <tr><th scope="row">End of speech to transcript</th><td class="num">149 ms median, 83&ndash;165 ms range</td><td>800 ms</td></tr>
+            <tr><th scope="row">Regression suite</th><td class="num">22 audio clips, 128 logic checks</td><td>green on three consecutive runs</td></tr>
+          </tbody>
+        </table>
+        <p class="mangle-note">Caveats that belong next to those numbers: one machine, one speaker, clips generated with the macOS <code>say</code> voice rather than recorded from human mouths, and no p95 computed. Treat them as evidence the architecture is not slow, not as a benchmark against another product.</p>
+        <p>There is no accuracy number on this site, deliberately. Word error rate on our own clips would be measuring the OS recognizer, not us, and the honest headline about accuracy is the next section of the landing page: Indian names come back mangled, three documented ways to fix that at the recognition step were implemented and measured and all three did nothing, and a Whisper-class engine is being evaluated behind the existing transcriber interface.</p>
+      </section>
+
+      <section class="pitch-block" id="didnt" aria-labelledby="p6">
+        <h2 id="p6">What we deliberately did not build</h2>
+        <ul class="didnt">
+          <li>
+            <h3>An LLM cleanup pass</h3>
+            <p>It is written, it is tested, and it is not wired in. It adds punctuation you never spoke. For the text of someone's message, deterministic beats clever, and once a model is allowed to touch the body the "we never rewrite you" rule stops being true.</p>
+          </li>
+          <li>
+            <h3>A WhatsApp API integration</h3>
+            <p>Every unofficial library reimplements the private protocol and gets accounts banned permanently with no appeal. A deep link is slower and less impressive and cannot get anyone banned.</p>
+          </li>
+          <li>
+            <h3>Auto-send on by default</h3>
+            <p>It exists, it requires Accessibility, and it is off. A wrong send on WhatsApp cannot be recalled. Making that opt-in after you trust the app is the whole difference between a useful tool and a story someone tells about the time software messaged their boss.</p>
+          </li>
+          <li>
+            <h3>A wake word or ambient listening</h3>
+            <p>It would make the demo smoother and it would make the app exactly the thing the category's loudest objection is about. Hand on a key, or nothing.</p>
+          </li>
+          <li>
+            <h3>Cloud transcription</h3>
+            <p>Faster and more accurate than on-device, particularly for Indian names, which is precisely our weakest area. We took the accuracy loss to keep audio on the machine.</p>
+          </li>
+          <li>
+            <h3>Telegram and iMessage</h3>
+            <p>Both are easier to automate than WhatsApp. One messenger that works is a better artefact than three that half work, and WhatsApp is the one our users actually use.</p>
+          </li>
+        </ul>
+      </section>
+
+      <section class="pitch-block" id="unproven" aria-labelledby="p7">
+        <h2 id="p7">What is still unproven</h2>
+        <p>Written before anyone asked, because it is the list a sceptical reader is trying to reconstruct anyway.</p>
+        <ul class="unproven">
+          <li><strong>Auto-send has never been run end to end by a human.</strong> The code path is written, both permissions have been granted on a real machine, and it has not once actually fired. Tests are not the same as having done it.</li>
+          <li><strong>Name recognition is the app's real weakness.</strong> The OS recognizer mangles Indian names non-deterministically. Fuzzy, phonetic and alias matching recover a lot of it and we have not measured how much on real human speech.</li>
+          <li><strong>Every latency number comes from synthetic speech.</strong> Clips generated with the macOS <code>say</code> voice, on one machine, one speaker profile. Real accents on real microphones are untested.</li>
+          <li><strong>Contact matching has not met a real address book at scale.</strong> The fixtures are ours. Someone with four contacts named Rahul and three thousand entries will find behaviour we have not seen.</li>
+          <li><strong>Voice note transcription is decoded but language-blocked.</strong> The Ogg-Opus decode is proven against real files. The English model turns real Hindi and Punjabi voice notes into confident nonsense, so the feature is not wired in.</li>
+          <li><strong>Nobody has paid for this and nobody has been asked to.</strong> The comparable tools charge roughly eight to ten dollars a month, which is a price anchor, not evidence anyone would pay us.</li>
+          <li><strong>It has never been used by a stranger.</strong> No signed build, no release, no installs beyond the machines it was written on.</li>
+        </ul>
+      </section>
+
+      <section class="pitch-block" aria-labelledby="p8">
+        <h2 id="p8">The honest summary</h2>
+        <p>Voicy is a small, sharp macOS utility that removes a context switch and refuses to put words in your mouth. The engineering that we are actually proud of is not the happy path, it is the three measured dead ends in the names section and the decision to leave a working language model unwired.</p>
+        <p>It is not a company. The category is crowded at the dictation end and the differentiator, contact resolution plus a strict no-rewrite rule, is copyable by anyone who decides it matters. What is defensible over a weekend is that it does one narrow thing without lying to you about it.</p>
+        <p><a href="index.html">Back to the product</a> &middot; <a href="https://github.com/Rishet11/voicy">Read the source</a></p>
+      </section>
+
+    </div>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap footer-inner">
+    <p>Built in a hackathon. Every number on this page has a method next to it, and every gap has a label.</p>
+    <a href="https://github.com/Rishet11/voicy">github.com/Rishet11/voicy</a>
+  </div>
+</footer>
+</body>
+</html>
