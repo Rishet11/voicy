@@ -113,6 +113,30 @@ public func runIntentTests() -> (passed: Int, failed: Int) {
            recipient: "Pulkit", body: "hello", app: .whatsapp,
            "name terminated by comma, body after")
 
+    expect("message Pulkit hello",
+           recipient: "Pulkit", body: "hello", app: .whatsapp,
+           "name terminated by pronoun-free body boundary")
+
+    expect("tell Pulkit, I am late",
+           recipient: "Pulkit", body: "I am late", app: .whatsapp,
+           "tell with comma after recipient")
+
+    expect("message Pulkit; hello",
+           recipient: "Pulkit", body: "hello", app: .whatsapp,
+           "semicolon terminates recipient")
+
+    expect("message Pulkit: hello",
+           recipient: "Pulkit", body: "hello", app: .whatsapp,
+           "colon terminates recipient")
+
+    expect("message Pulkit! hello",
+           recipient: "Pulkit", body: "hello", app: .whatsapp,
+           "exclamation mark terminates recipient")
+
+    expect("message Pulkit? hello",
+           recipient: "Pulkit", body: "hello", app: .whatsapp,
+           "question mark terminates recipient")
+
     expect("tell Rahul Sharma the meeting is at five",
            recipient: "Rahul Sharma", body: "the meeting is at five", app: .whatsapp,
            "multi-word name, no connector, 'the' boundary")

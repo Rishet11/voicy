@@ -93,6 +93,9 @@ public struct IntentParser: Sendable {
             // prepositions / determiners common at body start
             "on", "at", "in", "to", "for", "about", "with", "from", "by", "of",
             "the", "a", "an",
+            // Common message openers also terminate a one-word recipient
+            // without a spoken connector ("message Pulkit hello").
+            "hello", "hi",
             // politeness / Hinglish "I"
             "please", "main",
             // conjunctions. A name never continues through one, so they end the
@@ -187,6 +190,8 @@ public struct IntentParser: Sendable {
             if let last = nameTokens.last?.word,
                let ch = last.last,
                ",.;:!?".contains(ch) {
+                // The punctuation belongs to the name token. `i` was already
+                // advanced past this token above, so it now points at the body.
                 break
             }
         }
