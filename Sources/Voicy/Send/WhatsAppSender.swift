@@ -20,9 +20,11 @@ enum WhatsAppSubmitKind: Equatable {
 /// One escape hatch exists, because WhatsApp will not materialize its chat
 /// window without being activated (a cold launch or a window closed to the
 /// tray leaves the composer unreachable in the background). In those two cases
-/// the sender opens the deep link ONCE with activation, waits for the
-/// composer, hands focus straight back to the user's app, and only then
-/// submits and verifies in the background.
+/// the sender: launches the WhatsApp app once with activation, hides it the
+/// moment the process exists (the Cmd+H behaviour — windows never settle on
+/// screen and macOS hands focus back to the user's app), then delivers the
+/// deep link to the hidden app and submits through its hidden Accessibility
+/// tree.
 ///
 /// Every decision about *whether* to open anything lives in `SendGuard`, which
 /// is pure and unit-tested. This type only performs the effect the guard
@@ -72,9 +74,14 @@ final class WhatsAppSender {
     /// The default opens the deep link without activating WhatsApp, so the
     /// user's current app keeps focus.
     private let openURL: (URL) -> Bool
-    /// The same open but WITH activation — the escape hatch used only when
-    /// WhatsApp refuses to show its window in the background.
-    private let activateOpenURL: (URL) -> Bool
+    /// Injected app-launch primitive (the `open -a WhatsApp` behaviour). Used
+    /// only by the escape hatch: launch WhatsApp once, activating, because a
+    /// background-launched WhatsApp never creates a window.
+    private let launchApp: () -> Bool
+    /// Injected hide primitive (Cmd+H behaviour). The default hides WhatsApp
+    /// without quitting it, which returns focus to the user's app while the
+    /// AX tree stays reachable.
+    private let hideWhatsApp: () -> Void
     /// Injected submission primitive. The default presses WhatsApp's AX send
     /// button, falling back to a Return delivered straight to WhatsApp's PID.
     /// Neither path ever requires WhatsApp to be frontmost.
@@ -92,14 +99,23 @@ final class WhatsAppSender {
              NSWorkspace.shared.open(url, configuration: configuration)
              return true
          },
-         activateOpenURL: @escaping (URL) -> Bool = { NSWorkspace.shared.open($0) },
+         launchApp: @escaping () -> Bool = {
+             guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "net.whatsapp.WhatsApp") else {
+                 return false
+             }
+             let configuration = NSWorkspace.OpenConfiguration()
+             NSWorkspace.shared.openApplication(at: appURL, configuration: configuration)
+             return true
+         },
+         hideWhatsApp: @escaping () -> Void = { WhatsAppAccessibility.hideWhatsAppIfRunning() },
          submitSend: @escaping () -> WhatsAppSubmitKind? = { WhatsAppAccessibility.submitSend() },
          composeCleared: @escaping (String) -> Bool = { WhatsAppAccessibility.composerCleared(expected: $0) }) {
         self.blocklist = blocklist
         self.probe = probe
         self.waitOptions = waitOptions
         self.openURL = openURL
-        self.activateOpenURL = activateOpenURL
+        self.launchApp = launchApp
+        self.hideWhatsApp = hideWhatsApp
         self.submitSend = submitSend
         self.composeCleared = composeCleared
     }
@@ -187,21 +203,31 @@ final class WhatsAppSender {
         }
 
         var readiness = await confirmComposerReady(expectedText: body)
-        var activatedOnce = false
+        var hatchFired = false
 
         // Escape hatch: WhatsApp will not show its chat window without being
         // activated (cold launch, or the window was closed to the tray), and
-        // without a window there is no composer to fill or submit. Open once
-        // with activation, then hand focus back the moment the composer is
-        // ready — before anything is submitted.
+        // without a window there is no composer to fill or submit. Launch the
+        // WhatsApp app once (activating), hide it the moment it exists — its
+        // windows never settle on screen and focus returns to the user's app —
+        // then deliver the deep link to the hidden app and submit through the
+        // hidden Accessibility tree.
         if case .notReady(let cause, _, _, _) = readiness,
            cause == .appNotRunning || cause == .windowNotFound {
-            log("READY-WAIT: \(cause.reason); opening once with activation so WhatsApp can show the chat")
-            guard activateOpenURL(url) else {
-                log("FAIL: activating NSWorkspace.open returned false")
-                return .failed("activating NSWorkspace.open failed")
+            log("READY-WAIT: \(cause.reason); launching WhatsApp once, hiding it, then sending the deep link")
+            guard launchApp() else {
+                log("FAIL: could not launch the WhatsApp app")
+                return .failed("could not launch the WhatsApp app")
             }
-            activatedOnce = true
+            hatchFired = true
+            waitForWhatsAppProcess(seconds: 20)
+            waitOptions.sleep(1.0)
+            hideWhatsApp()
+            log("HIDE: WhatsApp hidden; its windows are off screen and the AX tree stays reachable")
+            guard openURL(url) else {
+                log("FAIL: deep link to the hidden WhatsApp returned false")
+                return .failed("deep link to the hidden WhatsApp failed")
+            }
             var coldOptions = waitOptions
             coldOptions.timeout = 35.0
             coldOptions.maxAttempts = 700
@@ -210,9 +236,10 @@ final class WhatsAppSender {
 
         switch readiness {
         case .ready:
-            // If the escape hatch fired, give the user their app back before
-            // submitting: the AX submit does not need WhatsApp frontmost.
-            if activatedOnce {
+            // Safety belt: if hiding did not return focus for some reason,
+            // hand the user their app back before submitting — the AX submit
+            // does not need WhatsApp frontmost.
+            if hatchFired {
                 WhatsAppAccessibility.restoreFrontmostIfWhatsApp(previous: previousFrontmost)
             }
             guard let kind = submitSend() else {
@@ -231,6 +258,16 @@ final class WhatsAppSender {
                        cause.reason, attempts, elapsedMs,
                        timedOut ? "timed out" : "attempt budget exhausted"))
             return .prefilledNotReady(reason: cause.reason)
+        }
+    }
+
+    /// Waits (bounded) for the WhatsApp process to exist after the app launch.
+    /// A cold launch can take several seconds; this caps it.
+    private func waitForWhatsAppProcess(seconds: TimeInterval) {
+        let start = waitOptions.now()
+        while waitOptions.now() - start < seconds {
+            if probe.appIsRunning() { return }
+            waitOptions.sleep(0.1)
         }
     }
 

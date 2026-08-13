@@ -190,9 +190,11 @@ func runSendGuardTests() async -> (passed: Int, failed: Int) {
     /// mean "nothing happened" rather than "happened and was reported oddly".
     final class OpenSpy: @unchecked Sendable {
         var opened = 0
-        var activated = 0
+        var launched = 0
+        var hidden = 0
         func open(_ url: URL) -> Bool { opened += 1; return true }
-        func activate(_ url: URL) -> Bool { activated += 1; return true }
+        func launch() -> Bool { launched += 1; return true }
+        func hide() { hidden += 1 }
     }
 
     func sender(_ blocklist: Blocklist, spy: OpenSpy,
@@ -201,7 +203,8 @@ func runSendGuardTests() async -> (passed: Int, failed: Int) {
                 cleared: @escaping (String) -> Bool = { _ in true }) -> WhatsAppSender {
         WhatsAppSender(blocklist: blocklist, probe: p, waitOptions: fastOptions(),
                        openURL: { spy.open($0) },
-                       activateOpenURL: { spy.activate($0) },
+                       launchApp: { spy.launch() },
+                       hideWhatsApp: { spy.hide() },
                        submitSend: { submitted.value += 1; return .postedReturn },
                        composeCleared: cleared)
     }
@@ -326,8 +329,9 @@ func runSendGuardTests() async -> (passed: Int, failed: Int) {
         .send(phone: firstContact, body: "hello", contactName: "Pulkit", dryRun: false)
     t.equal(windowless, .prefilledNotReady(reason: WhatsAppComposeWaiter.Failure.windowNotFound.reason),
             "a windowless WhatsApp is reported with its specific cause")
-    t.equal(windowlessSpy.opened, 1, "the background open happens exactly once")
-    t.equal(windowlessSpy.activated, 1, "the escape hatch opens exactly once with activation")
+    t.equal(windowlessSpy.opened, 2, "the deep link opens once in the background and once after the hide")
+    t.equal(windowlessSpy.launched, 1, "the WhatsApp app is launched exactly once by the hatch")
+    t.equal(windowlessSpy.hidden, 1, "WhatsApp is hidden exactly once after the hatch fires")
 
     // Cold start: WhatsApp appears during the second wait, so the escape hatch
     // turns a not-ready first wait into a verified send.
@@ -343,8 +347,9 @@ func runSendGuardTests() async -> (passed: Int, failed: Int) {
     let cold = await sender(openList, spy: coldSpy, probe: coldProbe, submitted: coldReturns)
         .send(phone: firstContact, body: "hello", contactName: "Pulkit", dryRun: false)
     t.equal(cold, .sentVerified, "a WhatsApp that appears during the second wait still sends")
-    t.equal(coldSpy.opened, 1, "cold start: the background open happens once")
-    t.equal(coldSpy.activated, 1, "cold start: the escape hatch fires once")
+    t.equal(coldSpy.opened, 2, "cold start: the deep link opens in the background and once more after the hide")
+    t.equal(coldSpy.launched, 1, "cold start: the WhatsApp app is launched once by the hatch")
+    t.equal(coldSpy.hidden, 1, "cold start: WhatsApp is hidden once it exists")
     t.equal(coldReturns.value, 1, "cold start: exactly one submit after the window appears")
 
     // Without Accessibility the send still works and reports honestly rather

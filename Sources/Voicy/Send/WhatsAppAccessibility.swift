@@ -190,6 +190,16 @@ enum WhatsAppAccessibility {
         previous.activate(options: [.activateIgnoringOtherApps])
     }
 
+    /// Hides WhatsApp without quitting it — the Cmd+H behaviour. Every window
+    /// leaves the screen, the app keeps running, and its Accessibility tree
+    /// stays readable, so a hidden WhatsApp can still receive the verified
+    /// submit. macOS hands focus back to the previously active app.
+    static func hideWhatsAppIfRunning() {
+        guard let pid = whatsAppPID(),
+              let app = NSRunningApplication(processIdentifier: pid) else { return }
+        app.hide()
+    }
+
     // MARK: - Tree walking (bounded)
 
     /// All descendants of `element`, depth-limited so a pathological AX tree
