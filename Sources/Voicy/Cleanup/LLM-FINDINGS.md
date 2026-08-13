@@ -1,9 +1,15 @@
 # On-device cleanup findings
 
-On this machine, a cold `LLMCleaner` call exceeded 15 seconds without
-returning. After the model warm-up, the second and third calls still exceeded
-25 seconds without returning. The model's availability could not be
-determined from the hang.
+On this machine, `SystemLanguageModel.default.availability` is `available`.
+With the assets downloaded, one targeted probe measured:
+
+- cold call: 3896.8 ms
+- warm call 2: 859.4 ms
+- warm call 3: 909.4 ms
+
+Earlier, before the assets finished downloading, a cold call exceeded 15
+seconds and warmed calls exceeded 25 seconds without returning. Those hangs
+were not used as latency numbers.
 
 The live path therefore keeps the on-device pass disabled. The shipped
 behavior is `TranscriptCleaner.rulesOnly`, which is deterministic and
@@ -13,7 +19,15 @@ warmed latency is proven safe.
 
 ## Re-test
 
-Run a targeted probe that calls `LLMCleaner().warm()` once, then times exactly
-two sequential `LLMCleaner().clean()` calls on a roughly 25-word sentence.
-Record each elapsed time and stop the probe if either call exceeds 250 ms. Do
+Compile and run the committed targeted probe:
+
+```bash
+mkdir -p .build
+swiftc -parse-as-library Sources/Voicy/Cleanup/TranscriptCleaner.swift \
+  Sources/Voicy/Cleanup/LLMCleaner.swift Tools/llm-probe.swift \
+  -o .build/llm-probe
+perl -e 'alarm 30; exec @ARGV' .build/llm-probe
+```
+
+It prints availability and three calls on one roughly 25-word sentence. Do
 not run the full live-LLM suite because it can hang for minutes.
