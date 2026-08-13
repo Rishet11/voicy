@@ -149,11 +149,10 @@ Rails, in priority order (earlier rails win, always):
 2. `neverSend` -> refuse everything.
 3. Blocklist hit on the number OR the display name -> refuse.
 4. No phone digits -> refuse.
-5. Not `917982913080` -> refuse. Nothing is opened.
-6. Not explicitly confirmed -> downgraded to a dry run, never executed.
+5. Not explicitly confirmed -> downgraded to a dry run, never executed.
 
-Rails 3 and 5 are deliberately ordered that way: a number can be on both lists,
-and the blocklist must win.
+Rails 3 and 5 are deliberately ordered that way: the blocklist must win before
+confirmation can authorize a live request.
 
 ### Dry run is now the default
 
@@ -187,15 +186,15 @@ including refusal reasons. Nothing in `Send/` writes to disk.
 
 ### Tests
 
-`Send/SendGuardTests.swift`, 42 checks, registered as the `send guard` suite.
+`Send/SendGuardTests.swift`, 43 checks, registered as the `send guard` suite.
 Deterministic: a fake clock and an injected probe, no WhatsApp required.
 
 Unit-tested:
-- every guard rail and its priority order, including blocklist-beats-allowlist
-- a non-allowlisted recipient is refused AND the deep link is never opened
-  (proven with an open-call spy, not just by reading the outcome)
-- allowlist matches on digits, so `+91 79829 13080` passes and a number with one
-  extra digit does not
+- every guard rail and its priority order, including blocklist-before-confirmation
+- a confirmed contact outside the old development pin is allowed and opens once
+- an unconfirmed request is downgraded to a dry run and opens nothing
+- blocklisted numbers and names are refused before opening
+- phone formatting is normalized before opening
 - omitting `dryRun` yields a dry run and opens nothing
 - every composer-wait failure cause, the ready path, a composer that focuses on
   the 4th poll, clock-bounded exit, attempt-bounded exit under a frozen clock,
@@ -208,12 +207,21 @@ NOT testable without a human at the keyboard, and therefore still unverified:
 - that the deep link lands in the correct chat on a real machine
 - the send itself, which is the user's own Return inside WhatsApp
 
-### Known tension, recorded rather than hidden
+### Real-user policy
 
-The `917982913080`-only allowlist is a binding project safety rule for this
-build, and it is incompatible with shipping to real users as-is. It is a
-hardcoded constant, not a flag, precisely so nobody can widen it by accident;
-widening it must be a deliberate code change with its own review.
+The development-only single-number pin is removed. Any contact resolved from the
+user’s macOS Contacts may receive a message, but only after the mandatory
+confirmation card shows all three of these items together:
+
+- the resolved contact name
+- the resolved phone number
+- the exact message text
+
+The user must actively confirm that card. There is no remembered approval and no
+way to skip confirmation. An ambiguous name remains unresolved and cannot reach
+the send path until the user chooses a specific contact. Each confirmation
+authorizes exactly one message to exactly one contact. The blocklist and
+`neverSend` kill switch are checked for every attempt, including dry runs.
 
 ## Log
 

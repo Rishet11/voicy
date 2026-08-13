@@ -14,21 +14,15 @@ import Foundation
 ///     protected and is not is the worst outcome this code can produce.
 ///  2. **Blocklist.** Both the phone number and the display name are checked,
 ///     under normalized matching (see `Blocklist.matches`).
-///  3. **Allowlist.** During this build only `917982913080` may receive a live
-///     message. Anyone else is refused outright — not downgraded, not queued.
+///  3. **Confirmation.** A live message requires an explicit confirmation of
+///     the resolved contact and exact message body. An unconfirmed request is
+///     downgraded to a dry run rather than opened.
 ///
 /// Then, and only then, does the caller's confirmation matter: an unconfirmed
 /// request becomes a forced dry run rather than a send. Defaulting to dry-run
 /// means a future bug that forgets to pass confirmation cannot deliver a
 /// message to the wrong person; it can only fail to deliver one.
 enum SendGuard {
-
-    /// Who may receive a live message in this build.
-    ///
-    /// Hardcoded on purpose. An env var or a CLI flag would be one typo away
-    /// from a live send to a stranger, and the project ships with neither.
-    /// Stored as E.164 digits, no leading `+`.
-    static let allowedRecipients: Set<String> = ["917982913080"]
 
     /// Why a request was not allowed to go out live. Every case is distinct so
     /// the caller (and the tests) can tell exactly which rail fired.
@@ -39,7 +33,8 @@ enum SendGuard {
         case neverSend
         /// This number or name is on the blocklist.
         case blocklisted(contact: String)
-        /// Not `917982913080`. Nothing is opened.
+        /// Retained for source compatibility with older callers. The send
+        /// guard no longer rejects contacts for their phone number alone.
         case notAllowlisted(phone: String)
         /// No digits in the phone number: no deep link can be built.
         case noPhoneDigits
@@ -49,7 +44,7 @@ enum SendGuard {
             case .blocklistUnreadable: return "blocklist unreadable; refusing to send (fail closed)"
             case .neverSend: return "neverSend kill-switch is on"
             case .blocklisted(let c): return "'\(SendGuard.maskIdentifier(c))' is blocklisted"
-            case .notAllowlisted(let p): return "\(SendGuard.maskPhone(p)) is not on the send allowlist"
+            case .notAllowlisted(let p): return "\(SendGuard.maskPhone(p)) is not eligible to send"
             case .noPhoneDigits: return "recipient has no usable phone digits"
             }
         }
@@ -93,14 +88,7 @@ enum SendGuard {
         let digits = phone.filter(\.isNumber)
         guard !digits.isEmpty else { return .refused(.noPhoneDigits) }
 
-        // 4. Allowlist. Checked even for dry runs so the tests exercise the
-        //    same rail the live path uses, and so a dry run can never be
-        //    "promoted" later by a caller that only re-reads the outcome.
-        guard allowedRecipients.contains(digits) else {
-            return .refused(.notAllowlisted(phone: digits))
-        }
-
-        // 5. Confirmation. Absent it, downgrade — never proceed.
+        // 4. Confirmation. Absent it, downgrade — never proceed.
         if requestedDryRun { return .dryRun }
         return confirmed ? .live : .forcedDryRun
     }

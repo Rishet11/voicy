@@ -34,7 +34,8 @@ final class WhatsAppSender {
         /// already masked: numbers are reduced to their last 4 digits, because
         /// callers log this value verbatim.
         case blocked(contact: String)
-        /// Recipient is not on the send allowlist. Nothing was opened.
+        /// Compatibility outcome for older callers. Current guard decisions do
+        /// not reject contacts for their phone number alone.
         case notAllowlisted
         /// Something failed before we could open anything.
         case failed(String)

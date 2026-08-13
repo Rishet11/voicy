@@ -6,7 +6,7 @@ import Foundation
 ///
 /// WHAT THESE PROVE (all deterministic, no WhatsApp required):
 ///  - every guard rail refuses, in the documented priority order
-///  - a non-allowlisted recipient is refused and nothing is opened
+///  - any confirmed resolved contact may receive
 ///  - an unconfirmed request is downgraded to a dry run, never executed
 ///  - every composer-wait failure cause is reachable and correctly named
 ///  - the wait is bounded by BOTH the clock and the attempt budget
@@ -20,70 +20,68 @@ import Foundation
 func runSendGuardTests() async -> (passed: Int, failed: Int) {
     var t = TestRun("send-guard")
 
-    let allowed = "917982913080"
-    let stranger = "919999999999"
+    let firstContact = "917982913080"
+    let secondContact = "919999999999"
     let openList = Blocklist(state: .loaded([]))
 
     // MARK: Guard decision table
 
-    t.equal(SendGuard.decide(phone: allowed, contactName: "Pulkit", blocklist: openList,
+    t.equal(SendGuard.decide(phone: firstContact, contactName: "Pulkit", blocklist: openList,
                              confirmed: true, requestedDryRun: false),
-            .live, "allowlisted + confirmed goes live")
+            .live, "a confirmed contact goes live")
 
-    t.equal(SendGuard.decide(phone: allowed, contactName: "Pulkit", blocklist: openList,
+    t.equal(SendGuard.decide(phone: secondContact, contactName: "Stranger", blocklist: openList,
+                             confirmed: true, requestedDryRun: false),
+            .live, "any confirmed contact may go live")
+
+    t.equal(SendGuard.decide(phone: firstContact, contactName: "Pulkit", blocklist: openList,
                              confirmed: false, requestedDryRun: false),
-            .forcedDryRun, "unconfirmed is downgraded to a dry run, not sent")
+            .forcedDryRun, "unconfirmed live request is refused as a dry run")
 
-    t.equal(SendGuard.decide(phone: allowed, contactName: "Pulkit", blocklist: openList,
+    t.equal(SendGuard.decide(phone: firstContact, contactName: "Pulkit", blocklist: openList,
                              confirmed: true, requestedDryRun: true),
             .dryRun, "an explicit dry run stays a dry run even when confirmed")
 
-    t.equal(SendGuard.decide(phone: stranger, contactName: "Stranger", blocklist: openList,
-                             confirmed: true, requestedDryRun: false),
-            .refused(.notAllowlisted(phone: stranger)),
-            "a non-allowlisted recipient is refused even when confirmed")
-
-    // Formatting must not be a way around the allowlist in either direction.
+    // Formatting is normalized before the deep link is built.
     t.equal(SendGuard.decide(phone: "+91 79829 13080", contactName: nil, blocklist: openList,
                              confirmed: true, requestedDryRun: false),
-            .live, "allowlist matches on digits, ignoring +, spaces and punctuation")
+            .live, "phone formatting is normalized, ignoring +, spaces and punctuation")
 
     t.equal(SendGuard.decide(phone: "9179829130801", contactName: nil, blocklist: openList,
                              confirmed: true, requestedDryRun: false),
-            .refused(.notAllowlisted(phone: "9179829130801")),
-            "an extra trailing digit is a different number and is refused")
+            .live, "a different confirmed contact is also allowed")
 
     t.equal(SendGuard.decide(phone: "not a number", contactName: nil, blocklist: openList,
                              confirmed: true, requestedDryRun: false),
             .refused(.noPhoneDigits), "a digitless target is refused, not opened")
 
     // Priority: the kill switch outranks everything, including a dry run and
-    // an otherwise-allowlisted recipient.
-    t.equal(SendGuard.decide(phone: allowed, contactName: "Pulkit",
+    // an otherwise-valid recipient.
+    t.equal(SendGuard.decide(phone: firstContact, contactName: "Pulkit",
                              blocklist: Blocklist(state: .corrupt),
                              confirmed: false, requestedDryRun: true),
             .refused(.blocklistUnreadable), "corrupt blocklist refuses even a dry run")
 
-    t.equal(SendGuard.decide(phone: allowed, contactName: "Pulkit",
+    t.equal(SendGuard.decide(phone: firstContact, contactName: "Pulkit",
                              blocklist: Blocklist(state: .loaded([]), neverSend: true),
                              confirmed: true, requestedDryRun: false),
-            .refused(.neverSend), "neverSend refuses an allowlisted, confirmed send")
+            .refused(.neverSend), "neverSend refuses an confirmed send")
 
-    t.equal(SendGuard.decide(phone: allowed, contactName: "Pulkit",
-                             blocklist: Blocklist(state: .loaded([allowed])),
+    t.equal(SendGuard.decide(phone: firstContact, contactName: "Pulkit",
+                             blocklist: Blocklist(state: .loaded([firstContact])),
                              confirmed: true, requestedDryRun: false),
-            .refused(.blocklisted(contact: allowed)),
-            "blocklist beats allowlist: the same number can be both")
+            .refused(.blocklisted(contact: firstContact)),
+            "blocklisted number is refused even when confirmed")
 
-    t.equal(SendGuard.decide(phone: allowed, contactName: "Pulkit Sharma",
+    t.equal(SendGuard.decide(phone: firstContact, contactName: "Pulkit Sharma",
                              blocklist: Blocklist(state: .loaded(["Pulkit Sharma"])),
                              confirmed: true, requestedDryRun: false),
             .refused(.blocklisted(contact: "Pulkit Sharma")),
-            "blocklisted display name refuses an allowlisted number")
+            "blocklisted display name refuses even when confirmed")
 
     // Redaction: no full numbers in anything the guard produces.
     t.equal(SendGuard.maskPhone("917982913080"), "*******3080", "phone masked to last 4")
-    t.check(!SendGuard.Refusal.notAllowlisted(phone: stranger).reason.contains(stranger),
+    t.check(!SendGuard.Refusal.notAllowlisted(phone: secondContact).reason.contains(secondContact),
             "refusal text never contains the full number")
 
     // MARK: Composer wait — one case per failure cause
@@ -198,33 +196,32 @@ func runSendGuardTests() async -> (passed: Int, failed: Int) {
                        openURL: { spy.open($0) })
     }
 
-    // The headline guarantee: a confirmed, unblocked, well-formed send to
-    // someone who is NOT the allowlisted number opens nothing.
+    // A confirmed, unblocked contact opens the prefilled composer.
     let strangerSpy = OpenSpy()
     let strangerOutcome = await sender(openList, spy: strangerSpy)
-        .send(phone: stranger, body: "hello", contactName: "Stranger", dryRun: false)
-    t.equal(strangerOutcome, .notAllowlisted, "non-allowlisted recipient is refused")
-    t.equal(strangerSpy.opened, 0, "a refused recipient opens nothing at all")
+        .send(phone: secondContact, body: "hello", contactName: "Stranger", dryRun: false)
+    t.equal(strangerOutcome, .prefilled, "any confirmed contact is allowed")
+    t.equal(strangerSpy.opened, 1, "a confirmed contact opens once")
 
     // Default argument: a caller that forgets `dryRun` cannot send.
     let forgetfulSpy = OpenSpy()
     let forgetful = await sender(openList, spy: forgetfulSpy)
-        .send(phone: allowed, body: "hello", contactName: "Pulkit")
+        .send(phone: firstContact, body: "hello", contactName: "Pulkit")
     t.equal(forgetful, .dryRun, "omitting dryRun defaults to a dry run")
     t.equal(forgetfulSpy.opened, 0, "a defaulted dry run opens nothing")
 
     let blockedSpy = OpenSpy()
-    let blocked = await sender(Blocklist(state: .loaded([allowed])), spy: blockedSpy)
-        .send(phone: allowed, body: "hello", contactName: "Pulkit", dryRun: false)
+    let blocked = await sender(Blocklist(state: .loaded([firstContact])), spy: blockedSpy)
+        .send(phone: firstContact, body: "hello", contactName: "Pulkit", dryRun: false)
     // The outcome is what Pipeline prints verbatim, so the number must already
     // be masked by the time it leaves the sender.
     t.equal(blocked, .blocked(contact: "*******3080"), "blocklisted number is refused")
-    t.check(!"\(blocked)".contains(allowed), "the blocked outcome never carries a full number")
+    t.check(!"\(blocked)".contains(firstContact), "the blocked outcome never carries a full number")
     t.equal(blockedSpy.opened, 0, "a blocklisted recipient opens nothing")
 
     let corruptSpy = OpenSpy()
     let corrupt = await sender(Blocklist(state: .corrupt), spy: corruptSpy)
-        .send(phone: allowed, body: "hello", contactName: "Pulkit", dryRun: true)
+        .send(phone: firstContact, body: "hello", contactName: "Pulkit", dryRun: true)
     if case .failed = corrupt {
         t.check(true, "corrupt blocklist fails closed")
     } else {
@@ -235,15 +232,15 @@ func runSendGuardTests() async -> (passed: Int, failed: Int) {
     // Live path, with the readiness probe satisfied.
     let liveSpy = OpenSpy()
     let live = await sender(openList, spy: liveSpy)
-        .send(phone: allowed, body: "hello", contactName: "Pulkit", dryRun: false)
-    t.equal(live, .prefilled, "an allowlisted confirmed send prefills the composer")
+        .send(phone: firstContact, body: "hello", contactName: "Pulkit", dryRun: false)
+    t.equal(live, .prefilled, "a confirmed send prefills the composer")
     t.equal(liveSpy.opened, 1, "the live path opens the deep link exactly once")
 
     // Live path where the composer never appears: the outcome names the cause
     // instead of claiming success.
     let stuckSpy = OpenSpy()
     let stuck = await sender(openList, spy: stuckSpy, probe: probe(focused: false))
-        .send(phone: allowed, body: "hello", contactName: "Pulkit", dryRun: false)
+        .send(phone: firstContact, body: "hello", contactName: "Pulkit", dryRun: false)
     t.equal(stuck, .prefilledNotReady(reason: WhatsAppComposeWaiter.Failure.composeFieldNotFocused.reason),
             "an unready composer is reported with its specific cause")
     t.equal(stuckSpy.opened, 1, "the unready path still opened the link once")
@@ -252,7 +249,7 @@ func runSendGuardTests() async -> (passed: Int, failed: Int) {
     // than blocking on an observation it cannot make (Tier-1-only path).
     let untrustedSpy = OpenSpy()
     let untrusted = await sender(openList, spy: untrustedSpy, probe: probe(trusted: false))
-        .send(phone: allowed, body: "hello", contactName: "Pulkit", dryRun: false)
+        .send(phone: firstContact, body: "hello", contactName: "Pulkit", dryRun: false)
     t.equal(untrusted, .prefilled, "no Accessibility still prefills; readiness is just unverified")
     t.equal(untrustedSpy.opened, 1, "the Tier-1 path opens the link")
 
