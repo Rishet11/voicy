@@ -126,6 +126,14 @@ final class WhatsAppSender {
             return .failed("NSWorkspace.open failed")
         }
 
+        // Without Accessibility we can still honestly report the deep-link
+        // prefill, but we cannot authorize an automated Return. This is the
+        // explicit non-auto-send outcome, not a success claim.
+        guard probe.isTrusted() else {
+            log("ABORT: Accessibility permission is not granted; message remains prefilled and unsent")
+            return .prefilled
+        }
+
         switch await confirmComposerReady(expectedText: body) {
         case .ready:
             log("POST Return after exact composer verification")
@@ -147,11 +155,6 @@ final class WhatsAppSender {
     /// anything, so we report the prefill and stop rather than pretending to
     /// have verified something. That keeps the Tier-1-only path fully working.
     private func confirmComposerReady(expectedText: String) async -> WhatsAppComposeWaiter.Result {
-        guard probe.isTrusted() else {
-            log("NOT READY: Accessibility permission is not granted")
-            return .notReady(cause: .notTrusted, attempts: 1, elapsedMs: 0, timedOut: false)
-        }
-
         return WhatsAppComposeWaiter.wait(probe: probe, expectedText: expectedText, options: waitOptions)
     }
 

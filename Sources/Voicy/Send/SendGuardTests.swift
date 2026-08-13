@@ -206,7 +206,7 @@ func runSendGuardTests() async -> (passed: Int, failed: Int) {
     let strangerSpy = OpenSpy()
     let strangerOutcome = await sender(openList, spy: strangerSpy)
         .send(phone: secondContact, body: "hello", contactName: "Stranger", dryRun: false)
-    t.equal(strangerOutcome, .prefilled, "any confirmed contact is allowed")
+    t.equal(strangerOutcome, .sentVerified, "any confirmed contact is allowed")
     t.equal(strangerSpy.opened, 1, "a confirmed contact opens once")
 
     // Default argument: a caller that forgets `dryRun` cannot send.
@@ -270,8 +270,8 @@ func runSendGuardTests() async -> (passed: Int, failed: Int) {
     let untrustedSpy = OpenSpy()
     let untrusted = await sender(openList, spy: untrustedSpy, probe: probe(trusted: false))
         .send(phone: firstContact, body: "hello", contactName: "Pulkit", dryRun: false)
-    t.equal(untrusted, .prefilledNotReady(reason: WhatsAppComposeWaiter.Failure.notTrusted.reason),
-            "no Accessibility aborts auto-send")
+    t.equal(untrusted, .prefilled,
+            "no Accessibility leaves a verified-unsent prefill and aborts auto-send")
     t.equal(untrustedSpy.opened, 1, "the Tier-1 path opens the link")
 
     return t.result

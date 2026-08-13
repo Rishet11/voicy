@@ -497,7 +497,8 @@ final class Pipeline {
         // ONE outbound path, always: WhatsAppSender checks the kill switch and
         // the blocklist, then opens the deep link and stops. There is no
         // synthetic-Return branch. Automating WhatsApp's send is a permanent-ban
-        // risk, so the last inch is always the user's own keypress.
+        // risk decision is the owner's. The sender still requires explicit
+        // Voicy confirmation and exact AX verification before one Return.
         Task { @MainActor [weak self] in
             guard let self else { return }
             let outcome = await self.whatsAppSender.send(phone: e164, body: body,
@@ -517,11 +518,9 @@ final class Pipeline {
                 if rememberAlias {
                     self.persistAlias(spoken: spoken, recipient: recipient)
                 }
+                self.tellUserMessageSent()
             case .prefilledNotReady:
-                // The chat was opened but the composer was never observed
-                // ready. Same user-facing instruction, no alias learned: we
-                // cannot be sure the right chat is in front of them.
-                self.tellUserToPressEnter()
+                self.present(failure: .whatsappUnavailable)
             case .blocked, .failed, .dryRun, .notAllowlisted:
                 self.present(failure: .whatsappUnavailable)
                 break
@@ -542,21 +541,26 @@ final class Pipeline {
     /// launch-time permission dialog — consistent with the progressive-permission
     /// model.
     ///
-    /// Says WHY the last keypress is the user's, so "why didn't it just send?"
-    /// is answerable without reading the source. Voicy will not press Enter for
-    /// you: WhatsApp treats an automated send as bot activity and bans accounts
-    /// for it permanently, so the send stays a human action by design, not
-    /// because a permission is missing.
+    /// Auto-send was not possible because Accessibility was unavailable. The
+    /// message remains unsent and the user can finish it manually.
     private func tellUserToPressEnter() {
         let alert = NSAlert()
-        alert.messageText = "Message ready in WhatsApp"
+        alert.messageText = "Message remains unsent"
         alert.informativeText = """
             Press Enter in WhatsApp to send it.
 
-            Voicy never presses Enter for you. WhatsApp bans accounts for \
-            automated sends, so the last keypress is always yours. Nothing has \
-            been sent yet — you can still edit or delete the message in WhatsApp.
+            Auto-send could not be verified because Accessibility permission is \
+            unavailable. Nothing has been sent yet.
             """
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
+    private func tellUserMessageSent() {
+        let alert = NSAlert()
+        alert.messageText = "Message sent"
+        alert.informativeText = "WhatsApp confirmed the message was submitted after Voicy verified the exact composer text."
         alert.alertStyle = .informational
         alert.addButton(withTitle: "OK")
         alert.runModal()
