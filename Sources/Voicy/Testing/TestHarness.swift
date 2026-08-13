@@ -32,7 +32,7 @@ import Foundation
 func runTestHarnessIfRequested() {
     let args = CommandLine.arguments
     let modes = ["--test-audio", "--test-audio-suite", "--unit-tests", "--test-latency",
-                 "--test-wer", "--test-onset"]
+                 "--test-wer", "--test-onset", "--test-stream"]
     guard args.contains(where: { modes.contains($0) }) else { return }
 
     let done = CompletionFlag()
@@ -55,6 +55,26 @@ func runTestHarnessIfRequested() {
 @MainActor
 private final class CompletionFlag {
     var value = false
+}
+
+/// Collects timestamped partial results from a streaming session. The callback
+/// fires from the recognizer's own task, so this is locked rather than
+/// main-actor isolated.
+private final class PartialRecorder: @unchecked Sendable {
+    private var entries: [(String, Double)] = []
+    private let lock = NSLock()
+
+    func record(text: String, at ms: Double) {
+        lock.lock()
+        entries.append((text, ms))
+        lock.unlock()
+    }
+
+    func snapshot() -> [(String, Double)] {
+        lock.lock()
+        defer { lock.unlock() }
+        return entries
+    }
 }
 
 // MARK: - Harness
@@ -118,6 +138,10 @@ struct TestHarness {
 
         if let manifest = value(for: "--test-wer") {
             failures += await runWER(manifestPath: manifest)
+        }
+
+        if let path = value(for: "--test-stream") {
+            failures += await runStreamProbe(path: path)
         }
 
         if has("--test-onset") {
@@ -529,6 +553,108 @@ struct TestHarness {
                   + "median \(fmt(sorted[sorted.count / 2])) ms  max \(fmt(sorted.last!)) ms  (budget 800 ms)")
         }
         print("suite: \(cases.count - failures)/\(cases.count) passed")
+        return failures
+    }
+
+    // MARK: - Streaming probe
+
+    /// Proves the streaming path actually streams, and that streaming does not
+    /// change the answer.
+    ///
+    /// The clip is fed in 100 ms chunks at real-time pace, exactly as the
+    /// microphone tap would deliver it, and every partial is timestamped. Two
+    /// things are checked, both of which are how streaming normally goes wrong:
+    ///
+    ///   1. Partials must arrive BEFORE the audio ends. A "streaming" API that
+    ///      only emits once at the end has no user-visible benefit at all.
+    ///   2. The final text must match the one-shot transcript. If streaming
+    ///      changes the result, the app would ship two different recognizers
+    ///      depending on which path ran.
+    ///
+    ///   Voicy --test-stream Tests/audio/long-body.wav
+    private func runStreamProbe(path: String) async -> Int {
+        guard #available(macOS 26.0, *) else {
+            print("stream: needs macOS 26")
+            return 1
+        }
+        print("")
+        print("=== streaming probe: \(URL(fileURLWithPath: path).lastPathComponent) ===")
+
+        guard let pcm = try? AudioFileLoader.loadPCM(url: URL(fileURLWithPath: path)), !pcm.isEmpty else {
+            print("stream: could not load audio at \(path)")
+            return 1
+        }
+        let duration = AudioFileLoader.duration(pcm)
+        let contacts = await contactSet()
+        let hints = contacts.flatMap { c in
+            [c.givenName, c.familyName, c.nickname, c.organizationName, c.displayName].filter { !$0.isEmpty }
+        }
+
+        let recorder = PartialRecorder()
+        let start = Date()
+        let session = LiveTranscriptionSession(locale: Locale(identifier: "en_US"), hints: hints) { text in
+            recorder.record(text: text, at: Date().timeIntervalSince(start) * 1000)
+        }
+        do {
+            try await session.start()
+        } catch {
+            print("stream: start failed: \(error)")
+            return 1
+        }
+
+        // 100 ms of 16 kHz mono is 1600 samples. Fed at real-time pace so the
+        // timings below mean what they say.
+        let chunk = 1_600
+        var offset = 0
+        while offset < pcm.count {
+            let end = min(offset + chunk, pcm.count)
+            session.append(Array(pcm[offset..<end]))
+            offset = end
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        let audioEndedMs = Date().timeIntervalSince(start) * 1000
+
+        let final: TranscriptionResult
+        do {
+            final = try await session.finish()
+        } catch {
+            print("stream: finish failed: \(error)")
+            return 1
+        }
+        let finishedMs = Date().timeIntervalSince(start) * 1000
+
+        let partials = recorder.snapshot()
+        print("  audio          \(String(format: "%.2f", duration)) s, fed in \(fmt(audioEndedMs)) ms at real-time pace")
+        print("  partials       \(partials.count)")
+        for (text, ms) in partials.prefix(12) {
+            print("    \(pad(fmt(ms) + " ms", 12)) \"\(display(text))\"")
+        }
+        if partials.count > 12 { print("    ... \(partials.count - 12) more") }
+
+        let duringSpeech = partials.filter { $0.1 < audioEndedMs }
+        print("  first partial  " + (partials.first.map { fmt($0.1) + " ms" } ?? "NONE"))
+        print("  during speech  \(duringSpeech.count) of \(partials.count)")
+        print("  tail latency   \(fmt(finishedMs - audioEndedMs)) ms  (audio ends -> final text)")
+        print("  final          \"\(display(final.best))\"")
+
+        var failures = 0
+        if duringSpeech.isEmpty {
+            print("  FAIL no partial arrived before the audio ended; this is not streaming")
+            failures += 1
+        }
+
+        // Same clip, one shot, through the shipped engine.
+        let oneShot = TranscriberFactory.make()
+        let oneShotText = (try? await oneShot.transcribe(pcm: pcm, hints: hints)) ?? ""
+        print("  one-shot       \"\(display(oneShotText))\"")
+        if !loosely(final.best, equals: oneShotText) {
+            print("  FAIL streaming final differs from the one-shot transcript")
+            failures += 1
+        }
+        if final.best.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            print("  FAIL streaming produced no final text")
+            failures += 1
+        }
         return failures
     }
 
