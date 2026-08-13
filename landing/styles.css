@@ -50,7 +50,9 @@ table { border-collapse: collapse; }
   --measure: 33rem;
 }
 
-@media (prefers-color-scheme: dark) {
+/* dark mode disabled: always show cream paper (#f7f5ef) even if OS is dark.
+   Uncomment the block below to restore auto dark. */
+/* @media (prefers-color-scheme: dark) {
   :root {
     --paper:      #131409;
     --paper-warm: #191a10;
@@ -60,20 +62,17 @@ table { border-collapse: collapse; }
     --ink-3:      #8b8878;
     --rule:       #2f3023;
     --rule-2:     #454635;
-
     --green:      #74dda4;
     --green-soft: rgba(116, 221, 164, .14);
     --on-green:   #0b1610;
-
     --amber:      #dcb662;
     --amber-soft: rgba(220, 182, 98, .13);
-
     --dark:       #0b0c06;
     --dark-2:     #14150c;
     --on-dark:    #eae7d9;
     --on-dark-2:  #85826f;
   }
-}
+} */
 
 body {
   background: var(--paper);
