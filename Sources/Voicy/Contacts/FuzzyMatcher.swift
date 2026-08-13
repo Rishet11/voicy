@@ -163,10 +163,30 @@ public final class FuzzyMatcher: Sendable {
     /// "siddharth" (0.33) hard.
     static let lengthDampingKneeRatio: Double = 0.7
 
-    /// When true, apply a capped Soundex bonus to weak matches. Default off.
+    /// Similarity two folded (PhoneticFolder) strings must reach before a
+    /// contact is considered a "phonetic hit". High, because the folded key is
+    /// coarse (it merges t/d, o/u, e/i): this floor is what keeps "Xavier
+    /// Quinlan" folded ("xavir kuinlan") away from "Meera Krishnan" folded
+    /// ("mira krisnan") - measured similarity between those two is well below
+    /// this floor, same margin the orthographic anchor floor relies on.
+    static let phoneticMatchFloor: Double = 0.88
+
+    /// Hard ceiling on any score that is reached ONLY via a phonetic hit
+    /// (i.e. the orthographic score alone did not clear notFoundFloor).
+    /// Fixed strictly below ResolutionThresholds.resolveFloor (0.80), so a
+    /// phonetic-only signal can never produce `.resolved` - this is enforced
+    /// here structurally, independent of whatever the resolver's thresholds
+    /// happen to be, per the "never guess a recipient" contract.
+    static let phoneticRecallCeiling: Double = 0.70
+
+    /// When true, run the phonetic recall pass below. Default on: unlike the
+    /// old Soundex bonus (English-biased, measured not to help), this table is
+    /// built from Indian-name confusions actually observed in the audio suite,
+    /// and it is structurally capped so it can only add/rank candidates, never
+    /// auto-resolve.
     public let usePhoneticBonus: Bool
 
-    public init(usePhoneticBonus: Bool = false) {
+    public init(usePhoneticBonus: Bool = true) {
         self.usePhoneticBonus = usePhoneticBonus
     }
 
@@ -305,12 +325,40 @@ public final class FuzzyMatcher: Sendable {
             best = max(best, s)
         }
 
-        if usePhoneticBonus && best < 0.8 {
-            if let qSound = Soundex.encode(query),
-               weighted.contains(where: { Soundex.encode($0.0) == qSound }) {
-                // Capped well below the resolve floor so it can only help recall,
-                // never tip a borderline match into a decisive resolution.
-                best = max(best, min(0.75, best + 0.15))
+        // Phonetic recall pass. Only runs when the orthographic score alone
+        // did not clear notFoundFloor, i.e. this is exactly the case where the
+        // contact would otherwise vanish entirely (measured: "Polka" for
+        // "Pulkit", "Adidi" for "Aditi"). It can raise `best` only up to
+        // phoneticRecallCeiling, never higher, so it cannot turn an already
+        // -weak orthographic match into a confident one either.
+        if usePhoneticBonus && best < ResolutionThresholds.notFoundFloor
+            && query.count >= Self.minimumFuzzyQueryLength {
+            let foldedQuery = PhoneticFolder.fold(query)
+            for (v, weight) in weighted {
+                let foldedVariant = PhoneticFolder.fold(v)
+                let variantTokens = v.split(whereSeparator: { !$0.isLetter }).map(String.init)
+
+                let sim: Double
+                if queryTokens.count >= 2 {
+                    // Multi-token: same anchor discipline as the orthographic
+                    // path above, just on folded tokens, so a garbled name with
+                    // no real relation to a contact (e.g. "Xavier Quinlan")
+                    // still can't drag that contact into contention.
+                    guard !variantTokens.isEmpty else { continue }
+                    let foldedVariantTokens = variantTokens.map(PhoneticFolder.fold)
+                    let foldedQueryTokens = queryTokens.map(PhoneticFolder.fold)
+                    let perToken = foldedQueryTokens.map { qt in
+                        foldedVariantTokens.map { JaroWinkler.similarity(qt, $0) }.max() ?? 0
+                    }
+                    guard (perToken.min() ?? 0) >= Self.phoneticMatchFloor else { continue }
+                    sim = perToken.reduce(0, +) / Double(perToken.count)
+                } else {
+                    sim = JaroWinkler.similarity(foldedQuery, foldedVariant)
+                }
+
+                if sim >= Self.phoneticMatchFloor {
+                    best = max(best, min(Self.phoneticRecallCeiling, sim * weight))
+                }
             }
         }
         return best
