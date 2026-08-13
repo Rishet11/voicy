@@ -88,6 +88,69 @@ enum WhatsAppAccessibility {
         return v
     }
 
+    // MARK: - Readiness probes (read-only)
+
+    /// PID of the running WhatsApp application, whether or not it is frontmost.
+    /// Nil means the app is not running at all, which is a distinct failure
+    /// from "running but not ready".
+    static func whatsAppPID() -> pid_t? {
+        NSWorkspace.shared.runningApplications.first { app in
+            let bundleID = (app.bundleIdentifier ?? "").lowercased()
+            let name = (app.localizedName ?? "").lowercased()
+            return bundleID.contains("whatsapp") || name.contains("whatsapp")
+        }?.processIdentifier
+    }
+
+    /// True when WhatsApp is running AND exposes at least one window. A running
+    /// app with no window is the normal state a fraction of a second after the
+    /// deep link launches it, so this is worth distinguishing.
+    static func whatsAppHasWindow() -> Bool {
+        guard let pid = whatsAppPID() else { return false }
+        let app = AXUIElementCreateApplication(pid)
+        var windows: CFTypeRef?
+        let err = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &windows)
+        guard err == .success, let list = windows as? [AXUIElement] else { return false }
+        return !list.isEmpty
+    }
+
+    /// True when a send affordance is present in WhatsApp's focused window.
+    ///
+    /// This is a readiness signal only. Nothing here presses it: the button is
+    /// observed so the app can say "the chat is not in a sendable state"
+    /// instead of leaving the user staring at a composer that will not commit.
+    static func whatsAppSendButtonExists() -> Bool {
+        guard let pid = whatsAppPID() else { return false }
+        let app = AXUIElementCreateApplication(pid)
+        var window: CFTypeRef?
+        let err = AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &window)
+        guard err == .success, let windowRef = window else { return false }
+        return containsSendButton(windowRef as! AXUIElement, depth: 0)
+    }
+
+    /// Depth-limited search for a button whose description reads as "send".
+    /// Bounded so a pathological AX tree cannot hang the poll loop.
+    private static func containsSendButton(_ element: AXUIElement, depth: Int) -> Bool {
+        guard depth <= 8 else { return false }
+        if role(of: element) == (kAXButtonRole as String), describesSend(element) { return true }
+
+        var children: CFTypeRef?
+        let err = AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &children)
+        guard err == .success, let list = children as? [AXUIElement] else { return false }
+        for child in list where containsSendButton(child, depth: depth + 1) { return true }
+        return false
+    }
+
+    private static func describesSend(_ element: AXUIElement) -> Bool {
+        for attribute in [kAXDescriptionAttribute, kAXTitleAttribute, kAXIdentifierAttribute] {
+            var value: CFTypeRef?
+            let err = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
+            if err == .success, let text = value as? String, text.lowercased().contains("send") {
+                return true
+            }
+        }
+        return false
+    }
+
     // MARK: - Role checks
 
     private static func isTextInput(_ element: AXUIElement) -> Bool {

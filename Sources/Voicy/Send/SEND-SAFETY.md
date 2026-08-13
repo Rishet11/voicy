@@ -136,7 +136,84 @@ send. The "confirms Rahul, sends to Rohit" bug is not present.
 
 ## 2. Changes made
 
-(filled in as the work lands, see log below)
+### One decision point: `SendGuard`
+
+`Send/SendGuard.swift` is now the only place that decides whether anything may
+go out live. It is pure — no I/O, no globals, no environment variables, no CLI
+flags — so the whole safety story is one readable function plus its test table.
+`WhatsAppSender` performs only the effect the guard authorized.
+
+Rails, in priority order (earlier rails win, always):
+
+1. Corrupt blocklist -> refuse everything, including dry runs (fail closed).
+2. `neverSend` -> refuse everything.
+3. Blocklist hit on the number OR the display name -> refuse.
+4. No phone digits -> refuse.
+5. Not `917982913080` -> refuse. Nothing is opened.
+6. Not explicitly confirmed -> downgraded to a dry run, never executed.
+
+Rails 3 and 5 are deliberately ordered that way: a number can be on both lists,
+and the blocklist must win.
+
+### Dry run is now the default
+
+`WhatsAppSender.send(...)` takes `dryRun: Bool = true`. Passing `false` is the
+caller asserting a human confirmed this exact recipient and body. A future call
+site that forgets the argument gets a dry run, so a bug can fail to deliver a
+message but cannot deliver one to the wrong person. `Pipeline.handleSend` passes
+`false` explicitly, immediately after the confirm card fires.
+
+### Bounded, explicit AX readiness wait
+
+`Send/WhatsAppComposeWaiter.swift` replaces open-ended polling. Still read-only:
+it observes, it never types.
+
+- bounded by an absolute `timeout` (5 s shipped) AND, independently, by
+  `maxAttempts`, so a misbehaving clock cannot produce an unbounded loop
+- one distinct failure per cause, reported in dependency order so the first
+  thing actually wrong is what the user is told: `notTrusted`, `appNotRunning`,
+  `windowNotFound`, `composeFieldNotFocused`, `sendButtonNotFound`
+- new outcome `.prefilledNotReady(reason:)`: the link opened but the composer
+  was never observed ready. No alias is learned on this path, because we cannot
+  be sure the right chat is in front of the user.
+- Accessibility is Tier 2. Without it the waiter is skipped entirely and the
+  send still prefills, reporting honestly that readiness was not verified.
+
+### Nothing logs message content
+
+Bodies were already redacted; full phone numbers were not. Every log line in the
+send path now masks the number to its last 4 digits via `SendGuard.maskPhone`,
+including refusal reasons. Nothing in `Send/` writes to disk.
+
+### Tests
+
+`Send/SendGuardTests.swift`, 42 checks, registered as the `send guard` suite.
+Deterministic: a fake clock and an injected probe, no WhatsApp required.
+
+Unit-tested:
+- every guard rail and its priority order, including blocklist-beats-allowlist
+- a non-allowlisted recipient is refused AND the deep link is never opened
+  (proven with an open-call spy, not just by reading the outcome)
+- allowlist matches on digits, so `+91 79829 13080` passes and a number with one
+  extra digit does not
+- omitting `dryRun` yields a dry run and opens nothing
+- every composer-wait failure cause, the ready path, a composer that focuses on
+  the 4th poll, clock-bounded exit, attempt-bounded exit under a frozen clock,
+  and a zero timeout still taking one honest look
+- masking: a refusal string never contains a full number
+
+NOT testable without a human at the keyboard, and therefore still unverified:
+- that the real WhatsApp AX tree exposes the shapes the live `Probe` expects
+  (a non-empty window list, a focused text area, a button described "send")
+- that the deep link lands in the correct chat on a real machine
+- the send itself, which is the user's own Return inside WhatsApp
+
+### Known tension, recorded rather than hidden
+
+The `917982913080`-only allowlist is a binding project safety rule for this
+build, and it is incompatible with shipping to real users as-is. It is a
+hardcoded constant, not a flag, precisely so nobody can widen it by accident;
+widening it must be a deliberate code change with its own review.
 
 ## Log
 

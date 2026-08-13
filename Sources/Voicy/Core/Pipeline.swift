@@ -416,7 +416,12 @@ final class Pipeline {
                     self.persistAlias(spoken: spoken, recipient: recipient)
                 }
                 self.tellUserToPressEnter()
-            case .blocked, .failed, .dryRun:
+            case .prefilledNotReady:
+                // The chat was opened but the composer was never observed
+                // ready. Same user-facing instruction, no alias learned: we
+                // cannot be sure the right chat is in front of them.
+                self.tellUserToPressEnter()
+            case .blocked, .failed, .dryRun, .notAllowlisted:
                 break
             }
         }

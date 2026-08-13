@@ -317,7 +317,9 @@ func runSendPathTests() async -> (passed: Int, failed: Int) {
     let byNumber = WhatsAppSender(blocklist: Blocklist(state: .loaded([owner])))
     let blockedNumber = await byNumber.send(phone: owner, body: "I am late",
                                             contactName: "Pulkit Sharma", dryRun: true)
-    t.equal(blockedNumber, .blocked(contact: owner), "blocklisted number is refused")
+    // Masked: callers print the outcome verbatim, so it carries only last 4.
+    t.equal(blockedNumber, .blocked(contact: SendGuard.maskIdentifier(owner)),
+            "blocklisted number is refused")
 
     // Blocklisted by NAME: same refusal via the other identifier.
     let byName = WhatsAppSender(blocklist: Blocklist(state: .loaded(["Pulkit Sharma"])))
