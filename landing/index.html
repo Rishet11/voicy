@@ -14,9 +14,9 @@
   <nav class="nav wrap" aria-label="Primary">
     <a class="brand" href="#top">Voicy<span class="brand-dot"></span></a>
     <ul class="nav-links">
-      <li><a href="#slice">The mechanism</a></li>
+      <li><a href="#slice">Mechanism</a></li>
       <li><a href="#names">Names</a></li>
-      <li><a href="#privacy">What leaves your Mac</a></li>
+      <li><a href="#privacy">Privacy</a></li>
       <li><a href="pitch.html">Pitch</a></li>
     </ul>
     <a class="btn btn-ghost nav-cta" href="https://github.com/Rishet11/voicy">Source</a>
@@ -31,32 +31,21 @@
       <div class="hero-text">
         <p class="eyebrow">macOS menu bar app &middot; WhatsApp &middot; early software</p>
         <h1>Say who, say what.<br>It's already typed.</h1>
-        <p class="lede">Hold <kbd>Ctrl</kbd><kbd>Space</kbd>, say <span class="said">&ldquo;message Pulkit that I'll be late&rdquo;</span>, and WhatsApp opens with those five words in Pulkit's chat. You press Enter. You never left your editor, and nothing rewrote your sentence on the way.</p>
+        <p class="lede">Hold <kbd>Ctrl</kbd><kbd>Space</kbd>, say <span class="said">&ldquo;message Pulkit that I'll be late&rdquo;</span>. WhatsApp opens on Pulkit's chat with those exact words in the box.</p>
         <div class="hero-ctas">
-          <a class="btn btn-primary" href="https://github.com/Rishet11/voicy">Build it from source</a>
-          <a class="btn btn-ghost" href="#slice">See what it does to your words</a>
+          <a class="btn btn-primary" href="https://github.com/Rishet11/voicy">Build from source</a>
+          <a class="btn btn-ghost" href="#slice">See how</a>
         </div>
-        <p class="fineprint">There is no download. No signed release, no App Store listing, no company. You clone the repo and run <code>swift build</code>. It has been used by the people who wrote it and nobody else.</p>
+        <p class="fineprint">macOS. No release yet, you build it. Nobody outside the two authors has used it.</p>
       </div>
 
       <figure class="hero-visual">
         <div class="card confirm-card">
-          <div class="confirm-head">
-            <span class="confirm-avatar" aria-hidden="true">P</span>
-            <span class="confirm-who">
-              <span class="name">Pulkit</span>
-              <span class="phone">+91 98&#8226;&#8226;&#8226; &#8226;4&#8226;2&#8226;0</span>
-            </span>
-          </div>
-          <p class="confirm-label">message</p>
+          <p class="confirm-to">To <strong>Pulkit</strong></p>
           <p class="confirm-body">I'll be late, leaving now.</p>
-          <div class="confirm-keys">
-            <span><kbd>&crarr;</kbd> send</span>
-            <span><kbd>esc</kbd> cancel</span>
-            <span><kbd>&#8984;E</kbd> edit</span>
-          </div>
+          <p class="confirm-keys"><kbd>&crarr;</kbd> send <span aria-hidden="true">&middot;</span> <kbd>esc</kbd> cancel</p>
         </div>
-        <figcaption>The confirm card. Nothing is sent until you press a key.</figcaption>
+        <figcaption>Nothing is sent until you press a key.</figcaption>
       </figure>
     </div>
   </section>
@@ -66,7 +55,7 @@
     <div class="wrap">
       <p class="eyebrow eyebrow-inv">the whole idea</p>
       <h2 id="slice-h">What happens to your sentence</h2>
-      <p class="lede lede-inv">Most dictation tools regenerate your text. A model reads what you said and writes something close to it. Voicy finds two spans in the transcript and cuts. The message body is the exact characters you spoke, taken by offset, never regenerated.</p>
+      <p class="lede lede-inv">Most dictation tools regenerate your text. Voicy cuts two spans out of it.</p>
 
       <div class="tape" role="img" aria-label="Transcript of the spoken sentence, message Pulkit that I'll be late leaving now. The word 'message' is marked as the verb, 'Pulkit' as the recipient, 'that' as the connector, and 'I'll be late, leaving now' as the message body sliced verbatim.">
         <div class="tape-line">
@@ -77,13 +66,13 @@
         </div>
         <div class="tape-legend">
           <span><i class="sw sw-verb"></i>verb, dropped</span>
-          <span><i class="sw sw-name"></i>recipient, resolved against your contacts</span>
+          <span><i class="sw sw-name"></i>recipient, matched against your contacts</span>
           <span><i class="sw sw-conn"></i>connector, dropped</span>
-          <span><i class="sw sw-body"></i>body, sliced by character offset and sent as-is</span>
+          <span><i class="sw sw-body"></i>body, sliced by character offset, sent as-is</span>
         </div>
       </div>
 
-      <p class="slice-note">Because the body is a slice and not a rewrite, Hinglish survives. Byte offsets do not care what language you are speaking. The one edit Voicy will make is deleting a filler word, and even that is checked: the cleaned string is compared against the original, and if anything was added, changed or reordered instead of only removed, the untouched version is used.</p>
+      <p class="slice-note">The body is characters, copied by offset. There is no rewriting step to fail, so Hinglish survives too.</p>
     </div>
   </section>
 
@@ -91,9 +80,8 @@
   <section class="section" id="why" aria-labelledby="why-h">
     <div class="wrap two-col">
       <div>
-        <h2 id="why-h">The other half of the problem</h2>
-        <p>Dictation is solved. SuperWhisper, Wispr Flow and macOS Dictation all turn speech into text quickly and well. None of them know who you are talking to, so you still <kbd>Cmd</kbd><kbd>Tab</kbd>, still scroll past two hundred chats, still get pulled into three unread messages you did not come for. The typing was never the slow part. The context switch was.</p>
-        <p>The second half is trust. A tool that improves your sentence is a tool that occasionally puts words in your mouth, in a message with your name on it, that another person reads.</p>
+        <h2 id="why-h">The other half</h2>
+        <p>Dictation is solved. None of it knows who you are talking to, so you still <kbd>Cmd</kbd><kbd>Tab</kbd> and scroll past two hundred chats. The typing was never the slow part.</p>
       </div>
       <blockquote class="quote">
         <p>&ldquo;dictation gets my words correct but then it decides I must mean something else&rdquo;</p>
@@ -105,11 +93,10 @@
   <!-- ============ Names: the honest engineering section ============ -->
   <section class="section section-paper" id="names" aria-labelledby="names-h">
     <div class="wrap">
-      <h2 id="names-h">Indian names break every speech engine</h2>
-      <p class="section-lede">This is the hardest real problem in the app, and it is not fixed at the recognition step, because it cannot be. Here is what Apple's on-device recognizer actually returns for two names, measured on Voicy's own 22-clip audio suite:</p>
+      <h2 id="names-h">Indian names break the recognizer</h2>
 
       <table class="mangle">
-        <caption>Transcriptions observed across repeated runs of the same clips</caption>
+        <caption>Apple's on-device recognizer, across repeated runs of Voicy's own clips</caption>
         <thead>
           <tr><th scope="col">Spoken</th><th scope="col">What comes back</th></tr>
         </thead>
@@ -118,78 +105,65 @@
           <tr><th scope="row">Aarav</th><td><span class="wrong">Arav</span> <span class="wrong">our ab</span> <span class="wrong">our ad</span></td></tr>
         </tbody>
       </table>
-      <p class="mangle-note">The same clip can come back differently on consecutive runs. This is not a bug we can wait out.</p>
 
       <div class="tried">
-        <h3>Three documented ways to fix this at the source. All three did nothing.</h3>
+        <h3>We tried the three documented fixes</h3>
         <ol class="tried-list">
           <li>
             <span class="tried-name">Contextual strings</span>
-            <p>Feeding your contact names to the recognizer as hints, via <code>AnalysisContext.contextualStrings</code>. Ran the whole suite with hints on and off. Transcripts were byte-identical.</p>
+            <p>Contact names fed to the recognizer as hints. Byte-identical output.</p>
           </li>
           <li>
             <span class="tried-name">The en_IN locale</span>
-            <p>Already installed, no asset download needed. Byte-identical output on every clip, including every mangled name above, and about 1.5&#215; slower.</p>
+            <p>Byte-identical output, and about 1.5&#215; slower.</p>
           </li>
           <li>
             <span class="tried-name">A custom language model</span>
-            <p><code>SFCustomLanguageModelData</code> compiled and attached, the documented mechanism for custom vocabulary. Byte-identical again, and it blew the latency budget at 1576&#8239;ms worst case.</p>
+            <p>Byte-identical again, at 1576&#8239;ms worst case.</p>
           </li>
         </ol>
-        <p class="tried-verdict">So Voicy fixes names <em>after</em> recognition, where it actually has control. Fuzzy and phonetic matching recovers most of them, "Paul Kit" back to Pulkit. When it cannot, you correct the name once and Voicy stores that mapping, so "Polka" resolves to Pulkit instantly and permanently. Alias learning is not a nice extra here. It is the answer.</p>
+        <p class="tried-verdict">So names are fixed after recognition instead. Correct one once and it resolves forever.</p>
       </div>
     </div>
   </section>
 
-  <!-- ============ Two rules ============ -->
+  <!-- ============ Three rules ============ -->
   <section class="section" id="rules" aria-labelledby="rules-h">
     <div class="wrap">
-      <h2 id="rules-h">Two rules the code enforces</h2>
-      <p class="section-lede">Not settings. There is no toggle for either of these, because neither is implemented as a check that could be skipped.</p>
+      <h2 id="rules-h">Three things it will not do</h2>
     </div>
     <div class="wrap rules">
       <article class="rule">
-        <h3>It cannot rewrite your words</h3>
-        <p>There is no rewriting step in the pipeline. The body is a character range in the transcript, passed to the deep link unchanged. A language model is built and tested in this repo, and it is deliberately not wired in, because it adds punctuation you never spoke. Deterministic beats clever for the text of someone's message.</p>
+        <h3>Rewrite you</h3>
+        <p>The body is a slice, not a generation. A language model exists in the repo and is deliberately not wired in.</p>
       </article>
       <article class="rule">
-        <h3>It will not guess a recipient</h3>
-        <p>Two contacts named Rahul and it stops and asks. A name nobody has and it stops. A name the recognizer destroyed past recovery and it stops. A wrong send on WhatsApp cannot be recalled, so ambiguity resolves to a question, never to the most likely answer.</p>
+        <h3>Guess a recipient</h3>
+        <p>Two Rahuls and it asks. It never picks the likelier one, because a sent WhatsApp message cannot be recalled.</p>
       </article>
       <article class="rule">
-        <h3>It never touches a WhatsApp API</h3>
-        <p>Automation libraries that reimplement WhatsApp's private protocol get accounts permanently banned. Voicy hands macOS a <code>whatsapp://send</code> link, the click-to-chat scheme WhatsApp publishes for websites, and WhatsApp Desktop opens with the text already in the box. Nothing unusual to detect, because nothing unusual happened.</p>
+        <h3>Touch a WhatsApp API</h3>
+        <p>A <code>whatsapp://send</code> link, the same one behind every &ldquo;chat on WhatsApp&rdquo; button on the web. Nothing to ban.</p>
       </article>
     </div>
   </section>
 
-  <!-- ============ Privacy + permissions ============ -->
+  <!-- ============ Privacy ============ -->
   <section class="section section-paper" id="privacy" aria-labelledby="privacy-h">
     <div class="wrap two-col two-col-wide">
       <div>
         <h2 id="privacy-h">What leaves your Mac</h2>
         <p class="answer">Nothing.</p>
         <ul class="facts">
-          <li><strong>Your voice.</strong> Transcription runs on Apple's on-device Speech framework. No server, no API key, no upload step in the code. Airplane mode changes nothing.</li>
-          <li><strong>Your messages.</strong> Never stored, never logged, not even their length in an early version that got fixed. The only thing written to disk is a name mapping, "Polka" to a contact.</li>
-          <li><strong>Your contacts.</strong> Read into memory to match a spoken name against. That is the whole extent of it.</li>
-          <li><strong>The microphone.</strong> Opens when you hold the key, closes when you let go. No background listening, no screen capture, no keylogging.</li>
-          <li><strong>The kill switch.</strong> A blocklist of numbers that can never be auto-sent to. If the file is present but corrupt, every auto-send is refused rather than allowed.</li>
+          <li><strong>Voice</strong> transcribed on-device, no server and no API key.</li>
+          <li><strong>Messages</strong> never stored and never logged.</li>
+          <li><strong>Contacts</strong> read into memory, never uploaded.</li>
+          <li><strong>Microphone</strong> open only while you hold the key.</li>
+          <li><strong>Kill switch</strong> a blocklist that refuses everything if it cannot be read.</li>
         </ul>
       </div>
       <div class="perms">
-        <h3>Permissions, in order of when you are asked</h3>
-        <dl class="perm-list">
-          <dt>Microphone</dt>
-          <dd>First launch. To hear you when you hold the key.</dd>
-          <dt>Contacts</dt>
-          <dd>First launch. To turn a spoken name into a phone number.</dd>
-          <dt>Input Monitoring <span class="opt">optional</span></dt>
-          <dd>Only if you want push-to-talk on a bare Right Option key instead of a chord.</dd>
-          <dt>Accessibility <span class="opt">optional</span></dt>
-          <dd>Only if you want Voicy to press Return for you after the confirm card appears.</dd>
-        </dl>
-        <p class="perm-note">Both optional ones are off. With just the first two, everything on this page works: hotkey, transcription, contact matching, and the message sitting in WhatsApp waiting for you to press Enter.</p>
+        <p class="perm-note">Voicy asks for Microphone and Contacts. Input Monitoring and Accessibility are optional and off; everything on this page works without them.</p>
       </div>
     </div>
   </section>
@@ -197,11 +171,13 @@
   <!-- ============ Voice notes: honest status ============ -->
   <section class="section section-narrow" id="voicenotes" aria-labelledby="vn-h">
     <div class="wrap">
-      <p class="eyebrow eyebrow-warn">not shipped, and here is exactly why</p>
-      <h2 id="vn-h">Reading voice notes instead of listening to them</h2>
-      <p>WhatsApp shipped on-device voice note transcription on phones in November 2024. More than a year later it still has not reached WhatsApp Desktop. A four minute voice note on your Mac still costs you four minutes.</p>
-      <p>Half of this is solved. macOS decodes WhatsApp's Ogg-Opus files natively, proven against real files from the container, read-only, no ffmpeg and no bundled decoder. The other half is not: six real voice notes we sampled were Hindi and Punjabi, and the English model turns those into fluent, confident nonsense.</p>
-      <p class="callout">Shipping this English-only would produce text that looks right and is wrong, about someone's actual message. That is worse than shipping nothing, so it is not wired into the app. It needs language selection first.</p>
+      <p class="eyebrow eyebrow-warn">half done, not wired in</p>
+      <h2 id="vn-h">Voice notes you can read</h2>
+      <p>Decoding real WhatsApp voice notes works, proven on real files. Transcribing them does not: the ones we sampled are Hindi and Punjabi, and the English model turns those into confident nonsense. It needs language selection before it ships.</p>
+      <blockquote class="quote quote-inline">
+        <p>&ldquo;WhatsApp's voice note transcription on desktop is either missing entirely or very inaccurate for me.&rdquo;</p>
+        <cite>jpxoi, <a href="https://www.threads.com/@jpxoi/post/DUEcd-7DDGL/whats-app-voice-note-transcription-on-desktop-is-either-missing-entirely-or">Threads</a></cite>
+      </blockquote>
     </div>
   </section>
 
@@ -209,30 +185,19 @@
   <section class="section" id="faq" aria-labelledby="faq-h">
     <div class="wrap">
       <h2 id="faq-h">Questions</h2>
+      <p class="spec"><span>macOS 26</span><span>Apple Silicon</span><span>WhatsApp Desktop</span><span>offline except delivery</span></p>
       <div class="faq">
         <details>
           <summary>Will this get my WhatsApp banned?<span class="chev" aria-hidden="true"></span></summary>
-          <div class="faq-a"><p>No API is involved, so there is nothing to detect as automation. Voicy hands macOS a <code>whatsapp://send</code> link, the same mechanism behind every "chat on WhatsApp" button on the web. From WhatsApp's side, a person opened the app and pressed a key.</p></div>
+          <div class="faq-a"><p>No API is involved, so there is nothing to detect as automation. From WhatsApp's side, a person opened the app and pressed a key.</p></div>
         </details>
         <details>
           <summary>Does my audio leave my Mac?<span class="chev" aria-hidden="true"></span></summary>
-          <div class="faq-a"><p>No. On-device Speech framework, no server, no API key, no upload step in the code. You can check this yourself; it is the point of the repo being open.</p></div>
-        </details>
-        <details>
-          <summary>Does it work offline?<span class="chev" aria-hidden="true"></span></summary>
-          <div class="faq-a"><p>The hotkey, transcription and contact matching do, all three run locally. Delivery still needs WhatsApp Desktop to be online, exactly as if you had typed the message yourself.</p></div>
-        </details>
-        <details>
-          <summary>How fast is it, really?<span class="chev" aria-hidden="true"></span></summary>
-          <div class="faq-a"><p>Measured with pre-recorded speech injected into the real pipeline, not estimated: <strong>31.5&#8239;ms</strong> from key-down to the microphone recording, and a <strong>median of 149&#8239;ms</strong> from end of speech to transcript across 22 clips. Method and caveats are on the <a href="pitch.html#numbers">pitch page</a>.</p></div>
-        </details>
-        <details>
-          <summary>What do I need to run it?<span class="chev" aria-hidden="true"></span></summary>
-          <div class="faq-a"><p>macOS 26 or later on Apple Silicon, with WhatsApp Desktop installed, and Xcode's Swift toolchain to build it. WhatsApp only. No Telegram, no iMessage, no Windows, no Linux, no iOS.</p></div>
+          <div class="faq-a"><p>No. On-device Speech framework, no server and no upload step in the code. The repo is open, so you can check.</p></div>
         </details>
         <details>
           <summary>What is not finished?<span class="chev" aria-hidden="true"></span></summary>
-          <div class="faq-a"><p>Auto-send is written and tested but has never once been run end to end by a human, so treat it as untested. The ambiguous-contact picker, the edit-before-send shortcut and the Right Option hold-to-talk key have code and tests but no real-world use. Voice notes are decoded but not wired in. The <a href="pitch.html#unproven">pitch page</a> lists all of it in one place.</p></div>
+          <div class="faq-a"><p>Auto-send, the ambiguous-contact picker, the edit shortcut and the hold-to-talk key have code and tests but have never been run end to end by a human. Voice notes decode but are not wired in. The <a href="pitch.html#unproven">pitch page</a> lists all of it.</p></div>
         </details>
       </div>
     </div>
@@ -240,7 +205,7 @@
 
   <section class="closer">
     <div class="wrap">
-      <p class="closer-line">It is a hotkey, a slice, and a confirm card.</p>
+      <p class="closer-line">A hotkey, a slice, and a confirm card.</p>
       <a class="btn btn-primary" href="https://github.com/Rishet11/voicy">Read the source</a>
       <a class="btn btn-ghost" href="pitch.html">Why we built it this way</a>
     </div>
@@ -249,7 +214,7 @@
 
 <footer class="site-footer">
   <div class="wrap footer-inner">
-    <p>Built in a hackathon, on a Mac, by two people. No company, no funding, no waitlist, no testimonials we could not have gotten honestly.</p>
+    <p>Built in a hackathon by two people. No company, no funding, no waitlist.</p>
     <a href="https://github.com/Rishet11/voicy">github.com/Rishet11/voicy</a>
   </div>
 </footer>
