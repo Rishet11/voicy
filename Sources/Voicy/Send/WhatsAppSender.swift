@@ -21,7 +21,7 @@ enum WhatsAppSubmitKind: Equatable {
 /// window without being activated (a cold launch or a window closed to the
 /// tray leaves the composer unreachable in the background). In those two cases
 /// the sender: launches the WhatsApp app once with activation, hides it the
-/// moment the process exists (the Cmd+H behaviour — windows never settle on
+/// moment the process exists (the Cmd+H behaviour: windows never settle on
 /// screen and macOS hands focus back to the user's app), then delivers the
 /// deep link to the hidden app and submits through its hidden Accessibility
 /// tree.
@@ -100,7 +100,7 @@ final class WhatsAppSender {
          launchApp: @escaping () -> Bool = {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-            process.arguments = ["-g", "-j", "-a", "WhatsApp"]
+            process.arguments = ["-g", "-a", "WhatsApp"]
              do {
                  try process.run()
                  return true
@@ -248,7 +248,7 @@ final class WhatsAppSender {
         switch readiness {
         case .ready:
             // Safety belt: if hiding did not return focus for some reason,
-            // hand the user their app back before submitting — the AX submit
+            // hand the user their app back before submitting: the AX submit
             // does not need WhatsApp frontmost.
             if hatchFired {
                 WhatsAppAccessibility.restoreFrontmostIfWhatsApp(previous: previousFrontmost)
