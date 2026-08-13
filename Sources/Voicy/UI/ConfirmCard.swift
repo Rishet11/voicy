@@ -1,5 +1,7 @@
 import SwiftUI
 import Observation
+import Contacts
+import AppKit
 
 // MARK: - Confirm card
 //
@@ -27,6 +29,13 @@ final class ConfirmModel {
 
     var isAmbiguous: Bool { recipients.count > 1 }
     var isNotFound: Bool { recipients.isEmpty }
+    var heardName: String? {
+        guard let transcript, !transcript.isEmpty else { return nil }
+        if case .parsed(let intent) = IntentParser().parse(transcript) {
+            return intent.recipientText
+        }
+        return nil
+    }
     var primary: VoicyRecipient? { recipients.count == 1 ? recipients[0] : nil }
     var selected: VoicyRecipient? {
         guard !recipients.isEmpty else { return nil }
@@ -169,10 +178,11 @@ struct ConfirmCardView: View {
                 HintFooter(text: "↵ send  ·  esc cancel  ·  ⌘e edit")
                 Spacer(minLength: 0)
                 Button(action: onSend) {
-                    Image(systemName: "paperplane.fill")
-                        .font(.system(size: 11, weight: .semibold))
-                        .frame(width: 22, height: 22)
-                        .background(Circle().fill(palette.accent))
+                    Label("Send", systemImage: "paperplane.fill")
+                        .font(Theme.Typography.callout(.semibold))
+                        .padding(.horizontal, Theme.Space.sm)
+                        .padding(.vertical, Theme.Space.xs)
+                        .background(Capsule().fill(palette.accent))
                         .foregroundStyle(.white)
                 }
                 .buttonStyle(.plain)
@@ -245,28 +255,45 @@ struct ConfirmCardView: View {
         .accessibilityHint(selected ? "Currently selected. Press Return to confirm." : "Double-tap to select.")
     }
 
-    // MARK: Not found — show the transcript, phrased as a question
+    // MARK: Not found — actionable, specific next step
 
     private var notFoundView: some View {
         let palette = Theme.Colors.palette(scheme)
         return VStack(alignment: .leading, spacing: Theme.Space.sm) {
-            Text("Who did you mean?")
+            let contactsStatus = CNContactStore.authorizationStatus(for: .contacts)
+            let permissionMissing = contactsStatus == .denied ||
+                contactsStatus == .restricted || contactsStatus == .notDetermined
+
+            Text(permissionMissing ? "Contacts access is needed" : "No contact matched")
                 .font(Theme.Typography.headline())
                 .foregroundStyle(palette.textSecondary)
 
-            if let transcript = model.transcript, !transcript.isEmpty {
-                Text(transcript)
+            if permissionMissing {
+                Text("Voicy cannot search your contacts until Contacts access is enabled in System Settings.")
                     .font(Theme.Typography.body(.medium))
                     .lineSpacing(3)
-                    .textSelection(.enabled)
-                    .accessibilityLabel("What I heard: \(transcript)")
             } else {
-                Text("No transcript available.")
-                    .font(Theme.Typography.callout())
-                    .foregroundStyle(palette.textSecondary)
+                let name = model.heardName ?? "the name in your message"
+                Text("No contact matched \"\(name)\". Check the name and try again.")
+                    .font(Theme.Typography.body(.medium))
+                    .lineSpacing(3)
             }
 
-            HintFooter(text: "esc close")
+            HStack(spacing: Theme.Space.sm) {
+                if permissionMissing {
+                    Button("Open Contacts Settings") {
+                        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Contacts") else { return }
+                        NSWorkspace.shared.open(url)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityHint("Opens System Settings where Contacts access can be enabled.")
+                } else {
+                    Button("Close and try again", action: onCancel)
+                        .buttonStyle(.borderedProminent)
+                }
+                Spacer(minLength: 0)
+                HintFooter(text: "esc cancel")
+            }
         }
     }
 }

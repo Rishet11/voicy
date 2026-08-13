@@ -186,6 +186,15 @@ public final class ConfirmPanelController {
             return nil
         }
 
+        // Number keys are a fast, explicit choice in the candidate list.
+        if model.isAmbiguous,
+           let character = event.charactersIgnoringModifiers?.first,
+           let number = character.wholeNumberValue,
+           number >= 1, number <= model.recipients.count {
+            pick(number - 1)
+            return nil
+        }
+
         return event
     }
 
