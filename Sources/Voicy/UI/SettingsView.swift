@@ -21,9 +21,11 @@ enum SystemSettingsPane {
     static let base = "x-apple.systempreferences:com.apple.preference.security?Privacy_"
 
     static let microphone = makeURL("Microphone")
+    static let speechRecognition = makeURL("SpeechRecognition")
     static let contacts = makeURL("Contacts")
     static let listenEvent = makeURL("ListenEvent")
     static let accessibility = makeURL("Accessibility")
+    static let soundInput = URL(string: "x-apple.systempreferences:com.apple.Sound-Settings.extension?Input")!
 
     private static func makeURL(_ pane: String) -> URL {
         URL(string: base + pane)!
@@ -66,6 +68,7 @@ final class SettingsModel {
     // MARK: Live permission state
 
     var microphoneGranted: Bool { AVCaptureDevice.authorizationStatus(for: .audio) == .authorized }
+    var speechRecognitionGranted: Bool { SFSpeechRecognizer.authorizationStatus() == .authorized }
     var contactsGranted: Bool { CNContactStore.authorizationStatus(for: .contacts) == .authorized }
     var inputMonitoringGranted: Bool { CGPreflightListenEventAccess() }
     var accessibilityTrusted: Bool { AXIsProcessTrusted() }
@@ -152,6 +155,13 @@ struct SettingsView: View {
                 detail: "Records your voice so it can be transcribed on-device.",
                 granted: model.microphoneGranted,
                 pane: SystemSettingsPane.microphone
+            )
+
+            permissionRow(
+                title: "Speech Recognition",
+                detail: "Turns the captured audio into the words you spoke.",
+                granted: model.speechRecognitionGranted,
+                pane: SystemSettingsPane.speechRecognition
             )
 
             permissionRow(

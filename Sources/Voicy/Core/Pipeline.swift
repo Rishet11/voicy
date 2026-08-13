@@ -126,6 +126,7 @@ final class Pipeline {
     private var liveStart: Task<Void, Never>?
     private var pendingSpeechChunks: [[Float]] = []
     private var transcriptionInFlight = false
+    private var permissionRequestInFlight = false
 
     init() {
         recorder.onSamples = { [weak self] samples in
@@ -153,7 +154,7 @@ final class Pipeline {
         loadAliases()
         registerHotkeys()
 
-        // Tier-1 permissions (Microphone + Contacts) are requested on launch but
+        // Tier-1 permissions (Microphone + Speech Recognition + Contacts) are requested on launch but
         // never block startup. Everything works once they are granted.
         Task { @MainActor [weak self] in
             await self?.requestTier1Permissions()
@@ -225,20 +226,36 @@ final class Pipeline {
             present(failure: .transcriptionInProgress)
             return
         }
-        switch AVCaptureDevice.authorizationStatus(for: .audio) {
-        case .denied, .restricted:
+        let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+        let speechStatus = SFSpeechRecognizer.authorizationStatus()
+        if micStatus == .notDetermined || speechStatus == .notDetermined {
+            guard !permissionRequestInFlight else { return }
+            permissionRequestInFlight = true
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                defer { self.permissionRequestInFlight = false }
+                if let failure = await self.requestRecordingPermissions() {
+                    self.present(failure: failure)
+                } else {
+                    self.startRecording()
+                }
+            }
+            return
+        }
+        if micStatus == .denied || micStatus == .restricted {
             present(failure: .microphonePermissionDenied)
             return
-        default: break
         }
-        switch SFSpeechRecognizer.authorizationStatus() {
-        case .denied, .restricted:
+        if speechStatus == .denied || speechStatus == .restricted {
             present(failure: .speechRecognitionPermissionDenied)
             return
-        default: break
         }
         guard CNContactStore.authorizationStatus(for: .contacts) == .authorized else {
             present(failure: .contactsPermissionDenied)
+            return
+        }
+        guard recorder.hasInputDevice else {
+            present(failure: .noInputDevice)
             return
         }
         let t0 = Date()
@@ -264,6 +281,10 @@ final class Pipeline {
             try recorder.start()
             let ms = Date().timeIntervalSince(t0) * 1000
             print("[voicy] recording: started in \(String(format: "%.1f", ms)) ms")
+        } catch MicrophoneRecorder.RecordError.noInputDevice {
+            present(failure: .noInputDevice)
+            recordingIndicator.hide()
+            stopLevelMeter()
         } catch {
             present(failure: .microphoneStartFailed)
             recordingIndicator.hide()
@@ -282,7 +303,7 @@ final class Pipeline {
             }
             liveSession = nil
             liveStart = nil
-            present(failure: .noSpeechDetected)
+            present(failure: .deviceDeliveredZeroSamples)
             return
         }
         var energy: Float = 0
@@ -539,8 +560,26 @@ final class Pipeline {
         let alert = NSAlert()
         alert.messageText = failure.description
         alert.alertStyle = .warning
+        if let pane = settingsPane(for: failure) {
+            alert.addButton(withTitle: "Open System Settings")
+            alert.addButton(withTitle: "OK")
+            if alert.runModal() == .alertFirstButtonReturn {
+                NSWorkspace.shared.open(pane)
+            }
+            return
+        }
         alert.addButton(withTitle: "OK")
         alert.runModal()
+    }
+
+    private func settingsPane(for failure: PipelineFailure) -> URL? {
+        switch failure {
+        case .microphonePermissionDenied: return SystemSettingsPane.microphone
+        case .speechRecognitionPermissionDenied: return SystemSettingsPane.speechRecognition
+        case .noInputDevice, .deviceDeliveredZeroSamples, .microphoneStartFailed:
+            return SystemSettingsPane.soundInput
+        default: return nil
+        }
     }
 
     /// Permission-free, on-demand notice (after WhatsApp is open), not a
@@ -615,8 +654,9 @@ final class Pipeline {
 
     private func requestTier1Permissions() async {
         let mic = await requestMicrophone()
+        let speech = await requestSpeechRecognition()
         let contacts = await loadContacts()
-        print("[voicy] permissions: mic=\(mic) contacts=\(contacts)")
+        print("[voicy] permissions: mic=\(mic) speech=\(speech) contacts=\(contacts)")
     }
 
     private func requestMicrophone() async -> Bool {
@@ -626,6 +666,31 @@ final class Pipeline {
         case .denied, .restricted: return false
         @unknown default: return false
         }
+    }
+
+    private func requestSpeechRecognition() async -> Bool {
+        switch SFSpeechRecognizer.authorizationStatus() {
+        case .authorized: return true
+        case .notDetermined:
+            return await withCheckedContinuation { continuation in
+                SFSpeechRecognizer.requestAuthorization { status in
+                    continuation.resume(returning: status == .authorized)
+                }
+            }
+        case .denied, .restricted: return false
+        @unknown default: return false
+        }
+    }
+
+    /// Explicitly resolves both recording permissions before any engine start.
+    /// Request both on first run so the user gets the complete setup flow before
+    /// trying to dictate, then report the specific permission still missing.
+    private func requestRecordingPermissions() async -> PipelineFailure? {
+        let mic = await requestMicrophone()
+        let speech = await requestSpeechRecognition()
+        if !mic { return .microphonePermissionDenied }
+        if !speech { return .speechRecognitionPermissionDenied }
+        return nil
     }
 
     private func loadContacts() async -> Bool {

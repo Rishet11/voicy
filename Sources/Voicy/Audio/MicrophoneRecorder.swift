@@ -10,6 +10,7 @@ import Foundation
 final class MicrophoneRecorder {
     enum RecordError: Error {
         case engineStartFailed
+        case noInputDevice
     }
 
     private let engine = AVAudioEngine()
@@ -72,6 +73,11 @@ final class MicrophoneRecorder {
 
     var isRunning: Bool { engine.isRunning }
 
+    /// True when macOS exposes an input device for capture. This check is
+    /// deliberately separate from permission: an authorised Mac can still
+    /// have no usable microphone connected.
+    var hasInputDevice: Bool { AVCaptureDevice.default(for: .audio) != nil }
+
     /// Cached hardware input format, resolved once by `prewarm()`.
     private var cachedInputFormat: AVAudioFormat?
 
@@ -112,6 +118,7 @@ final class MicrophoneRecorder {
 
     /// Starts capturing. Returns the input sample rate actually used.
     func start() throws {
+        guard hasInputDevice else { throw RecordError.noInputDevice }
         let input = engine.inputNode
 
         // Always read the LIVE hardware format. Reading it from the cache and
@@ -121,6 +128,7 @@ final class MicrophoneRecorder {
         // plugs in AirPods at a different sample rate, and the tap gets
         // installed with a format the node no longer has.
         let inputFormat = input.inputFormat(forBus: 0)
+        guard inputFormat.sampleRate > 0 else { throw RecordError.noInputDevice }
 
         let fmt = Self.analysisFormat
         // Rebuild only when prewarm did not run, or the input device changed.

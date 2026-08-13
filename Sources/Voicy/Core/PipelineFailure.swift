@@ -13,6 +13,8 @@ enum PipelineFailure: Error, Equatable, CustomStringConvertible {
     case recordingAlreadyActive
     case transcriptionInProgress
     case microphoneStartFailed
+    case noInputDevice
+    case deviceDeliveredZeroSamples
     case noSpeechDetected
     case transcriptionFailed
     case speechModelUnavailable(locale: String)
@@ -38,8 +40,12 @@ enum PipelineFailure: Error, Equatable, CustomStringConvertible {
             return "TranscriptionInProgress: wait for the previous transcription to finish, then try again."
         case .microphoneStartFailed:
             return "MicrophoneStartFailed: select a working input in System Settings > Sound > Input, then try again."
+        case .noInputDevice:
+            return "NoInputDevice: connect or enable a microphone in System Settings > Sound > Input, then try again."
+        case .deviceDeliveredZeroSamples:
+            return "DeviceDeliveredZeroSamples: the selected microphone delivered no audio samples. Check System Settings > Sound > Input, then try again."
         case .noSpeechDetected:
-            return "NoSpeechDetected: no speech was captured. Hold the key while speaking and try again."
+            return "NoSpeechDetected: audio was captured, but no speech was recognised. Hold the key while speaking and try again."
         case .transcriptionFailed:
             return "TranscriptionFailed: speech could not be transcribed. Check Speech Recognition permission and try again."
         case .speechModelUnavailable(let locale):
