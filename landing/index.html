@@ -3,271 +3,323 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Voicy: say who and what, and WhatsApp is already typed</title>
-<meta name="description" content="Hold Ctrl+Space, say who and what. Voicy opens the right WhatsApp chat with your exact words. Speech stays on-device and Voicy makes zero network calls.">
-<link rel="stylesheet" href="styles.css">
+<meta name="color-scheme" content="light">
+<title>Voicy - Just say it. It's sent.</title>
+<meta name="description" content="Hold a key, say who it's for and what to say. Your words appear where you send them. Nothing leaves your device.">
+<link rel="stylesheet" href="styles.css?v=orbit3">
 </head>
 <body>
-<a class="skip-link" href="#main">Skip to main content</a>
+<a class="skip" href="#main">Skip to content</a>
 
-<header class="site-header">
-  <nav class="nav wrap" aria-label="Primary">
-    <a class="brand" href="#top"><svg class="brand-mark" width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><rect width="28" height="28" rx="7" fill="var(--green)"/><rect x="7.2" y="11" width="2.8" height="6" rx="1.4" fill="var(--on-green)"/><rect x="11.5" y="8.2" width="2.8" height="11.6" rx="1.4" fill="var(--on-green)"/><rect x="15.8" y="11" width="2.8" height="6" rx="1.4" fill="var(--on-green)"/><path d="M19 16.6L20.9 18.5L24.2 13.2" stroke="var(--on-green)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>Voicy</a>
-    <ul class="nav-links">
-      <li><a href="#how">How</a></li>
-      <li><a href="#slice">Mechanism</a></li>
-      <li><a href="#names">Names</a></li>
-      <li><a href="#privacy">Privacy</a></li>
-      <li><a href="pitch.html">Pitch</a></li>
-    </ul>
-    <a class="btn btn-ghost nav-cta" href="https://github.com/Rishet11/voicy">Source</a>
+<header class="head">
+  <nav class="wrap nav">
+    <a class="brand" href="#top"><span class="dot"></span> voicy</a>
+    <div class="nav-mid">
+      <a href="#how">How it works</a>
+      <a href="#why">Why this</a>
+      <a href="#try">Try it</a>
+    </div>
+    <a class="btn btn-ghost sm" href="https://github.com/Rishet11/voicy">GitHub</a>
   </nav>
 </header>
 
 <main id="main">
 
-  <!-- ============ HERO ============ -->
+  <!-- HERO centered, kinetic, white -->
   <section class="hero" id="top">
-    <div class="wrap hero-grid">
-      <div class="hero-text">
-        <p class="eyebrow">macOS app for WhatsApp</p>
-        <h1>Say who, say what.<br>It's already typed.</h1>
-        <p class="lede">Hold <kbd>Ctrl</kbd><kbd>Space</kbd>, say <span class="said">&ldquo;message Pulkit that I'll be late&rdquo;</span>. WhatsApp opens on Pulkit's chat with those exact words in the box.</p>
-        <div class="hero-ctas">
-          <a class="btn btn-primary" href="https://github.com/Rishet11/voicy">Build from source</a>
-          <a class="btn btn-ghost" href="#slice">See how</a>
+    <div class="wrap hero-wrap">
+      <h1 class="hero-h"><span class="w1">Just</span> <span class="w2">say</span> <span class="w3">it.</span></h1>
+      <p class="hero-sub">Hold Space. Say "message Pulkit I am on my way". Your words appear ready to send. You stay where you were.</p>
+
+      <div class="stage" aria-label="Voice demo, hold to talk and your words appear">
+        <!-- floating chips that show universal, WhatsApp is one of many, not the only -->
+        <div class="chips" aria-hidden="true">
+          <span class="chip c1">WhatsApp</span>
+          <span class="chip c2">Slack</span>
+          <span class="chip c3">Gmail</span>
         </div>
-        <p class="fineprint">For macOS 26 on Apple Silicon. No packaged release yet, build from source.</p>
-        <p class="privacy-line">Everything stays on this Mac. Transcription runs on device, Voicy makes zero network calls, and your messages are never stored.</p>
+
+        <!-- card that types -->
+        <div class="bubble" id="bubble">
+          <div class="bubble-top">
+            <span class="ava">P</span>
+            <div>
+              <p class="to">To <strong>Pulkit</strong></p>
+              <p class="where">Where you were typing</p>
+            </div>
+            <span class="blink" aria-hidden="true"></span>
+          </div>
+          <p class="typed"><span id="typed-text"></span><span class="cursor">|</span></p>
+          <p class="keys"><kbd>↵</kbd> send · <kbd>esc</kbd> cancel</p>
+        </div>
+
+        <!-- orb -->
+        <button class="orb" type="button" aria-label="Hold Space to talk">
+          <span class="orb-ring"></span>
+          <span class="orb-ring r2"></span>
+          <span class="orb-core"><span class="mic" aria-hidden="true">●</span> Hold Space</span>
+        </button>
+
+        <!-- listening indicator, voice not music -->
+        <div class="listen" aria-hidden="true">
+          <span></span><span></span><span></span>
+          <p>Listening</p>
+        </div>
+
+        <p class="stage-cap">Release. Glance. Press Enter. You never leave your app.</p>
       </div>
 
-      <figure class="hero-visual">
-        <div class="card confirm-card">
-          <p class="confirm-to">To <strong>Pulkit</strong></p>
-          <p class="confirm-body">I'll be late, leaving now.</p>
-          <p class="confirm-keys"><kbd>&crarr;</kbd> send <span aria-hidden="true">&middot;</span> <kbd>esc</kbd> cancel</p>
-        </div>
-        <figcaption>You review first. Nothing sends until you press Enter.</figcaption>
-      </figure>
+      <div class="hero-acts">
+        <a class="btn btn-primary" href="https://github.com/Rishet11/voicy">Build from source</a>
+        <a class="btn btn-ghost" href="#how">See how it works</a>
+      </div>
+      <p class="micro">Your voice stays on this device. Zero network calls. No log.</p>
     </div>
   </section>
 
-  <!-- ============ How it works in 3 steps ============ -->
-  <section class="section steps" id="how" aria-labelledby="how-h">
+  <!-- CHAIN - dopamine loop, moving dot -->
+  <section class="chain" aria-label="The loop">
     <div class="wrap">
-      <p class="eyebrow">how it works</p>
-      <h2 id="how-h">Hold, speak, confirm. That is it.</h2>
-      <ol class="steps-grid">
-        <li class="step">
-          <span class="step-num">01</span>
-          <h3>Hold Ctrl+Space and speak</h3>
-          <p>Say <span class="said">"message Pulkit that I'll be late"</span>. While you talk, text streams in 35 partials. Mic starts in 31.5 ms, transcript tails in 149 ms.</p>
-        </li>
-        <li class="step">
-          <span class="step-num">02</span>
-          <h3>Check the card</h3>
-          <p>Voicy matches the name with fuzzy and phonetic lookup, so <span class="said">Paul Kit</span> still finds Pulkit. Correct a mangled name once and the alias is learned for next time. The card shows contact and message. Press <kbd>Return</kbd> to send, <kbd>esc</kbd> to cancel, <kbd>Cmd+E</kbd> to edit.</p>
-        </li>
-        <li class="step">
-          <span class="step-num">03</span>
-          <h3>WhatsApp opens, you stay in control</h3>
-          <p>A <code>whatsapp://send</code> deep link prefills the chat. If you enabled auto-send, Voicy posts Return only if WhatsApp is focused and the composer holds exactly that text. Otherwise it aborts with a named error and leaves the text unsent.</p>
-        </li>
-      </ol>
-      <p class="spec spec-steps"><span>macOS 26</span><span>Apple Silicon</span><span>WhatsApp Desktop</span><span>35 partials streaming</span><span>31.5 ms mic start</span><span>149 ms tail</span><span>72 cases, 90.9% top-1</span><span>zero network calls</span></p>
-      <p class="steps-note">Two permissions to start: Microphone and Contacts. Optional toggles for hold a key to talk and send without pressing Enter need Input Monitoring and Accessibility, both off by default. Measured via audio injection harness, same code path as the microphone, 72 case eval at 90.9% top-1 with 100% correct refusal and 0.0% wrong-person sends.</p>
-    </div>
-  </section>
-
-  <!-- ============ THE BIG ONE: the slicing mechanism ============ -->
-  <section class="slice" id="slice" aria-labelledby="slice-h">
-    <div class="wrap">
-      <p class="eyebrow eyebrow-inv">how the sentence is cut</p>
-      <h2 id="slice-h">What happens to your sentence</h2>
-      <p class="lede lede-inv">Voicy cuts the recipient and message body from what you said. Cleanup only removes disfluencies.</p>
-
-      <div class="tape" role="img" aria-label="Transcript of the spoken sentence, message Pulkit that I'll be late leaving now. The word 'message' is marked as the verb, 'Pulkit' as the recipient, 'that' as the connector, and 'I'll be late, leaving now' as the message body sliced from the transcript without generation.">
-        <div class="tape-line">
-          <span class="tok tok-verb">message</span>
-          <span class="tok tok-name">Pulkit</span>
-          <span class="tok tok-conn">that</span>
-          <span class="tok tok-body">I'll be late, leaving now</span>
-        </div>
-        <div class="tape-legend">
-          <span><i class="sw sw-verb"></i>verb, dropped</span>
-          <span><i class="sw sw-name"></i>recipient, matched against your contacts</span>
-          <span><i class="sw sw-conn"></i>connector, dropped</span>
-          <span><i class="sw sw-body"></i>body, sliced by character offset, never regenerated</span>
+      <div class="track">
+        <span class="track-line"></span>
+        <span class="track-dot"></span>
+        <div class="track-steps">
+          <span class="step">Writing</span>
+          <span class="step">Hold</span>
+          <span class="step">Speak</span>
+          <span class="step">Words appear</span>
+          <span class="step ok">✓ Sent</span>
         </div>
       </div>
-      <button type="button" class="tape-replay" aria-label="Replay 11 second slice animation">Watch 11s loop · Replay</button>
-
-      <p class="slice-note">The body is copied by character offset. There is no rewrite step.</p>
     </div>
   </section>
 
-  <!-- ============ Problem ============ -->
-  <section class="section" id="why" aria-labelledby="why-h">
-    <div class="wrap two-col">
+  <!-- COST - timer psychology, less wordy -->
+  <section class="cost" id="why" aria-labelledby="cost-h">
+    <div class="wrap cost-grid">
+      <div class="cost-left">
+        <p class="eyebrow"><span class="dot sm"></span> The cost of switching</p>
+        <h2 id="cost-h">You leave your work to send one line.</h2>
+        <p class="sub">You switch apps, find the chat, type, get pulled into other chats. You lose where you were.</p>
+      </div>
+      <div class="timers">
+        <div class="tcard before">
+          <p class="tlabel">Before</p>
+          <p class="tnum"><span class="num" data-target="252">0</span><span>s</span></p>
+          <p class="tdesc">Switch app, find chat, type, get distracted, find your place again.</p>
+          <div class="spinner" aria-hidden="true"><span></span></div>
+        </div>
+        <div class="tcard after">
+          <p class="tlabel">With Voicy</p>
+          <p class="tnum ac"><span class="num" data-target="1.1">0</span><span>s</span></p>
+          <p class="tdesc">Hold. Say who and what. Release.</p>
+          <div class="check" aria-hidden="true">✓</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- HOW - single pill that splits, no tape jargon -->
+  <section class="how" id="how" aria-labelledby="how-h">
+    <div class="wrap how-wrap">
+      <p class="eyebrow"><span class="dot sm"></span> How it hears</p>
+      <h2 id="how-h">Your sentence splits in one place.</h2>
+      <p class="sub">Before the split is who. After is what you said, word for word.</p>
+
+      <div class="split" id="split">
+        <div class="pill-line">
+          <span class="seg drop">message</span>
+          <span class="seg who">Pulkit</span>
+          <span class="seg drop">that</span>
+          <span class="seg keep">I'm on my way</span>
+        </div>
+        <div class="split-labels">
+          <span>dropped</span>
+          <span class="ac">who</span>
+          <span>dropped</span>
+          <span class="ac bg">kept exactly</span>
+        </div>
+      </div>
+      <p class="how-note">The last part is copied by position. No rewrite.</p>
+    </div>
+  </section>
+
+  <!-- ROWS - not 3 tiles, vertical list with micro animations -->
+  <section class="rows" aria-labelledby="rows-h">
+    <div class="wrap">
+      <p class="eyebrow"><span class="dot sm"></span> Four things we will not do</p>
+      <h2 id="rows-h" class="sr">Promises</h2>
+
+      <div class="row">
+        <span class="row-icon" aria-hidden="true">Aa</span>
+        <div>
+          <h3>Keep your words</h3>
+          <p>Your words stay exactly as you said. No rewriting. Your voice stays yours.</p>
+        </div>
+        <span class="row-anim text-keep" aria-hidden="true"><span>I'll be late</span><span class="keep">I'll be late</span></span>
+      </div>
+
+      <div class="row">
+        <span class="row-icon" aria-hidden="true">?</span>
+        <div>
+          <h3>Ask, not guess</h3>
+          <p>Two people called Pulkit? We ask which one. Wrong send breaks trust.</p>
+        </div>
+        <span class="row-anim ask" aria-hidden="true">
+          <span class="av r">R</span><span class="av r2">R</span><span class="qm">?</span>
+        </span>
+      </div>
+
+      <div class="row">
+        <span class="row-icon" aria-hidden="true">◉</span>
+        <div>
+          <h3>Stay on this device</h3>
+          <p>Turns voice to text here. Contacts stay here. Zero uploads.</p>
+        </div>
+        <span class="row-anim lock" aria-hidden="true"><span class="lock-body">⌖</span><span class="lock-dot"></span></span>
+      </div>
+
+      <div class="row">
+        <span class="row-icon" aria-hidden="true">↗</span>
+        <div>
+          <h3>Works where you type</h3>
+          <p>Same hold and say in any app. No switching, no paste dance.</p>
+        </div>
+        <span class="row-anim apps" aria-hidden="true"><span class="app wa">W</span><span class="app sl">S</span><span class="app gm">M</span></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- NAMES - small, honest, with match animation -->
+  <section class="names" aria-labelledby="names-h">
+    <div class="wrap names-grid">
       <div>
-        <h2 id="why-h">Find the person while you speak</h2>
-        <p>Dictation puts words in a box. It does not choose the WhatsApp chat. Voicy takes a name from the sentence, matches it to Contacts, and opens that chat.</p>
+        <h2 id="names-h">Heard as “Paul Kit”. Still finds Pulkit.</h2>
+        <p>We tried nudging the listener. Same words back. So we fix it after, by sound and spelling. Correct once, we remember.</p>
       </div>
-      <blockquote class="quote">
-        <p>&ldquo;dictation gets my words correct but then it decides I must mean something else&rdquo;</p>
-        <cite>andersonkl, <a href="https://discussions.apple.com/thread/251793781">Apple Support Communities</a></cite>
-      </blockquote>
+      <div class="name-demo">
+        <p class="heard">“Paul Kit”</p>
+        <div class="match-line"><span class="ml"></span><span class="dot2"></span></div>
+        <p class="found">Pulkit</p>
+        <p class="nm-cap">One correction lasts forever.</p>
+      </div>
     </div>
   </section>
 
-  <!-- ============ Names: the honest engineering section ============ -->
-  <section class="section section-paper" id="names" aria-labelledby="names-h">
-    <div class="wrap">
-      <h2 id="names-h">Correct the name after speech</h2>
-
-      <table class="mangle">
-        <caption>Apple's on-device recognizer, over 22 recorded clips in our own test harness</caption>
-        <thead>
-          <tr><th scope="col">Spoken</th><th scope="col">What comes back</th></tr>
-        </thead>
-        <tbody>
-          <tr><th scope="row">Pulkit</th><td><span class="wrong">Polkit</span> <span class="wrong">Polka</span> <span class="wrong">Paul Kit</span></td></tr>
-          <tr><th scope="row">Aarav</th><td><span class="wrong">Arav</span> <span class="wrong">our ab</span> <span class="wrong">our ad</span></td></tr>
-        </tbody>
-      </table>
-
-      <div class="tried">
-        <h3>Three fixes changed nothing</h3>
-        <ol class="tried-list">
-          <li>
-            <span class="tried-name">Contextual strings</span>
-            <p>Contact names fed to the recognizer as hints. Byte-identical output.</p>
-          </li>
-          <li>
-            <span class="tried-name">The en_IN locale</span>
-            <p>Byte-identical output, and about 1.5&#215; slower.</p>
-          </li>
-          <li>
-            <span class="tried-name">A custom language model</span>
-            <p>Byte-identical again, at 1576&#8239;ms worst case.</p>
-          </li>
+  <!-- TRY - two steps, code -->
+  <section class="try" id="try" aria-labelledby="try-h">
+    <div class="wrap try-grid">
+      <div>
+        <p class="eyebrow"><span class="dot sm"></span> Try it</p>
+        <h2 id="try-h">Two minutes.</h2>
+        <ol class="steps">
+          <li><span class="n">1</span> Clone and build</li>
+          <li><span class="n">2</span> Hold <kbd>Ctrl</kbd> <kbd>Space</kbd>, say a name and a message</li>
         </ol>
-        <p class="tried-verdict">So names are fixed after recognition instead. Correct one once and it resolves forever.</p>
+        <div class="code">
+          <pre><code>git clone https://github.com/Rishet11/voicy.git
+cd voicy
+./build.sh
+open dist/Voicy.app</code></pre>
+          <button class="copy" data-copy="git clone https://github.com/Rishet11/voicy.git
+cd voicy
+./build.sh
+open dist/Voicy.app">Copy</button>
+        </div>
+        <p class="req">Needs desktop app installed where you send messages. Check: <code>./dist/Voicy.app/Contents/MacOS/Voicy --selftest</code></p>
+      </div>
+      <div class="try-card">
+        <p class="try-label">After you open it</p>
+        <ol>
+          <li>Find <strong>voicy</strong> in menu bar</li>
+          <li>Allow Microphone and Contacts</li>
+          <li>Hold, speak, release, press Enter</li>
+        </ol>
+        <p class="try-foot">Works where you type. You stay in your app.</p>
       </div>
     </div>
   </section>
 
-  <!-- ============ Three rules ============ -->
-  <section class="section" id="rules" aria-labelledby="rules-h">
-    <div class="wrap">
-      <h2 id="rules-h">It stops before a risky send</h2>
-    </div>
-    <div class="wrap rules">
-      <article class="rule">
-        <h3>What you say is what you get</h3>
-        <p>Your exact words, in your own typing style to friends. No AI rewriting, no cleanup, no surprises. Fidelity is the feature.</p>
-      </article>
-      <article class="rule">
-        <h3>Ask when names collide</h3>
-        <p>Two Rahuls means a question, not a guess.</p>
-      </article>
-      <article class="rule">
-        <h3>Use a WhatsApp deep link</h3>
-        <p>Voicy opens WhatsApp with a <code>whatsapp://send</code> link. It makes no API calls.</p>
-      </article>
-    </div>
-  </section>
-
-  <!-- ============ Privacy ============ -->
-  <section class="section section-paper" id="privacy" aria-labelledby="privacy-h">
-    <div class="wrap two-col two-col-wide">
-      <div>
-        <h2 id="privacy-h">Nothing leaves this Mac</h2>
-        <p class="answer">Zero network calls. Airplane mode changes nothing.</p>
-        <ul class="facts">
-          <li><strong>Your voice</strong> never leaves this Mac. Transcription runs on device with Apple Speech. No server, no API key.</li>
-          <li><strong>Your messages</strong> are never stored. Not in a log, not in a file, not anywhere. The only thing saved is a name mapping, like Pulkit to this contact. Never message content.</li>
-          <li><strong>Your contacts</strong> are read into memory to match a name, never uploaded.</li>
-          <li><strong>Your microphone</strong> opens only while you hold the key and closes when you let go. No background listening, no screen recording.</li>
-        </ul>
-      </div>
-      <div class="perms">
-        <p class="perm-note">Two permissions to start: Microphone and Contacts. Two optional toggles, hold a key to talk and send without pressing Enter, need Input Monitoring and Accessibility. Both off by default.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- ============ Voice notes: honest status ============ -->
-  <section class="section section-narrow" id="voicenotes" aria-labelledby="vn-h">
-    <div class="wrap">
-      <p class="eyebrow eyebrow-warn">half done, not wired in</p>
-      <h2 id="vn-h">Received voice notes still need language support</h2>
-        <p>Voicy can decode real WhatsApp voice-note files. Transcription is not ready: the sampled files were Hindi and Punjabi, while the current recognizer runs <code>en_US</code>.</p>
-      <blockquote class="quote quote-inline">
-        <p>&ldquo;WhatsApp's voice note transcription on desktop is either missing entirely or very inaccurate for me. It skips words, struggles with accents, and sometimes just isn't available at all, so I built a local alternative.&rdquo;</p>
-        <cite>jpxoi, <a href="https://www.threads.com/@jpxoi/post/DUEcd-7DDGL/whats-app-voice-note-transcription-on-desktop-is-either-missing-entirely-or">Threads</a></cite>
-      </blockquote>
-    </div>
-  </section>
-
-  <!-- ============ FAQ ============ -->
-  <section class="section" id="faq" aria-labelledby="faq-h">
-    <div class="wrap">
-      <h2 id="faq-h">Know the limits before you build</h2>
-      <p class="spec"><span>macOS 26</span><span>Apple Silicon</span><span>WhatsApp Desktop</span><span>zero Voicy network calls</span></p>
-      <div class="faq">
-        <details>
-          <summary>Will this get my WhatsApp banned?<span class="chev" aria-hidden="true"></span></summary>
-          <div class="faq-a"><p>Voicy opens WhatsApp with a deep link. It does not use a WhatsApp API.</p></div>
-        </details>
-        <details>
-          <summary>Does my audio leave my Mac?<span class="chev" aria-hidden="true"></span></summary>
-          <div class="faq-a"><p>No. Speech runs on-device, and Voicy makes zero network calls.</p></div>
-        </details>
-        <details>
-          <summary>What is not finished?<span class="chev" aria-hidden="true"></span></summary>
-          <div class="faq-a"><p>Voicy decodes real Ogg-Opus voice notes locally, but transcription is blocked on language, the current recognizer runs en_US and is not wired into the UI. Auto-send posts Return only if WhatsApp is focused and the composer holds exactly the expected text, otherwise it aborts with a named error and the text stays unsent. Delivery still needs a person to confirm. The <a href="pitch.html#unproven">pitch page</a> lists the limits.</p></div>
-        </details>
-      </div>
+  <!-- FAQ - plain, collapsed -->
+  <section class="faq" aria-labelledby="faq-h">
+    <div class="wrap faq-wrap">
+      <h2 id="faq-h">Questions.</h2>
+      <details><summary>Will it get me banned? <span></span></summary><p>No. We open the app with the link it publishes for the web. No private API.</p></details>
+      <details><summary>Does audio leave this device? <span></span></summary><p>Never. It runs here. We make zero network calls and store no messages.</p></details>
+      <details><summary>What if it hears the name wrong? <span></span></summary><p>It will. We match by sound and spelling. Teach it once and it sticks.</p></details>
+      <details><summary>Why not fix my words? <span></span></summary><p>Because your voice is yours. We copy. We do not rewrite.</p></details>
     </div>
   </section>
 
   <section class="closer">
-    <div class="wrap">
-      <p class="closer-line">Hold the key and speak. The right WhatsApp chat opens with your words.</p>
-      <a class="btn btn-primary" href="https://github.com/Rishet11/voicy">Read the source</a>
-      <a class="btn btn-ghost" href="pitch.html">Why we built it this way</a>
+    <div class="wrap closer-wrap">
+      <p>Hold a key. Say it. It's sent.</p>
+      <div class="closer-acts">
+        <a class="btn btn-primary" href="https://github.com/Rishet11/voicy">Read the source</a>
+        <a class="btn btn-ghost" href="https://github.com/Rishet11/voicy">Star on GitHub</a>
+      </div>
     </div>
   </section>
+
 </main>
 
-<footer class="site-footer">
-  <div class="wrap footer-inner">
-    <p>Made with <span class="footer-heart">♥</span> by Rishet, powered by <a class="footer-ao" href="https://github.com/Rishet11/agent-orchestrator">AO</a></p>
+<footer class="foot">
+  <div class="wrap foot-inner">
+    <p>Built by two people at a hackathon.</p>
+    <a href="https://github.com/Rishet11/voicy">github.com/Rishet11/voicy</a>
   </div>
 </footer>
+
 <script>
 (function(){
-  var btn=document.querySelector('.tape-replay');
-  var tape=document.querySelector('.tape');
-  if(!btn||!tape)return;
-  var toks=tape.querySelectorAll('.tok');
-  function replay(){
-    var reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if(reduced){
-      tape.style.opacity='0.72';
-      setTimeout(function(){tape.style.opacity='';},160);
-      btn.style.transform='scale(0.96)';
-      setTimeout(function(){btn.style.transform='';},120);
-      return;
+  var t = document.getElementById('typed-text');
+  var toEl = document.querySelector('.to strong');
+  var ava = document.querySelector('.ava');
+  var phrases = ["I'm on my way","I'll be late, leaving now","the file is ready","I'm here, come down"];
+  var names = ["Pulkit","Pulkit","Mom","Pulkit"];
+  var avas = ["P","P","M","R"];
+  var pi=0, ci=0, del=false, el=t;
+  function tick(){
+    var cur = phrases[pi];
+    if(!del){
+      el.textContent = cur.slice(0, ci+1);
+      ci++;
+      if(ci===cur.length){ del=true; setTimeout(tick, 1400); return; }
+      setTimeout(tick, 70);
+    } else {
+      el.textContent = cur.slice(0, ci-1);
+      ci--;
+      if(ci===0){ del=false; pi=(pi+1)%phrases.length; if(toEl) toEl.textContent = names[pi]; if(ava) ava.textContent = avas[pi]; setTimeout(tick, 400); return; }
+      setTimeout(tick, 32);
     }
-    toks.forEach(function(el){el.style.animation='none';});
-    void tape.offsetWidth;
-    toks.forEach(function(el){el.style.animation='';});
-    btn.style.transform='scale(0.96)';
-    setTimeout(function(){btn.style.transform='';},120);
   }
-  btn.addEventListener('click',replay);
+  tick();
+  var nums = document.querySelectorAll('.num');
+  var obs = new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if(e.isIntersecting){
+        var el=e.target, target=parseFloat(el.dataset.target), cur=0;
+        var isFloat = String(target).indexOf('.')>-1;
+        var step = isFloat ? 0.07 : 7;
+        var id=setInterval(function(){
+          cur += step;
+          if(cur>=target){ cur=target; clearInterval(id); obs.unobserve(el); }
+          el.textContent = isFloat ? cur.toFixed(1) : Math.round(cur);
+        }, 30);
+      }
+    });
+  },{threshold:.5});
+  nums.forEach(function(n){ obs.observe(n); });
+  var btn=document.querySelector('.copy');
+  if(btn){ btn.addEventListener('click', function(){
+    var txt=btn.dataset.copy||'';
+    if(navigator.clipboard){ navigator.clipboard.writeText(txt).then(function(){ var o=btn.textContent; btn.textContent='Copied'; setTimeout(function(){btn.textContent=o},1200); }); }
+  });}
+  var split=document.getElementById('split');
+  if(split){
+    split.addEventListener('mouseenter', function(){ split.classList.add('hover'); });
+    split.addEventListener('mouseleave', function(){ split.classList.remove('hover'); });
+  }
 })();
 </script>
 </body>
