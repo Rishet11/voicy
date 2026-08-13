@@ -32,6 +32,8 @@ enum WhatsAppComposeWaiter {
         /// Composer focused, but the send affordance is absent — the chat is
         /// not in a sendable state (no recipient resolved, or an error sheet).
         case sendButtonNotFound
+        /// The focused field does not contain the exact confirmed body.
+        case composeTextMismatch
         /// Accessibility permission is not granted, so nothing can be observed.
         case notTrusted
 
@@ -41,6 +43,7 @@ enum WhatsAppComposeWaiter {
             case .windowNotFound: return "WhatsApp has no visible window yet"
             case .composeFieldNotFocused: return "the WhatsApp compose field never took focus"
             case .sendButtonNotFound: return "the WhatsApp send button was not found"
+            case .composeTextMismatch: return "the WhatsApp compose text did not match the confirmed message"
             case .notTrusted: return "Accessibility permission is not granted"
             }
         }
@@ -61,6 +64,7 @@ enum WhatsAppComposeWaiter {
         var appIsRunning: () -> Bool
         var hasWindow: () -> Bool
         var composeFieldFocused: () -> Bool
+        var composeText: () -> String?
         var sendButtonExists: () -> Bool
 
         static var live: Probe {
@@ -68,6 +72,7 @@ enum WhatsAppComposeWaiter {
                   appIsRunning: { WhatsAppAccessibility.whatsAppPID() != nil },
                   hasWindow: { WhatsAppAccessibility.whatsAppHasWindow() },
                   composeFieldFocused: { WhatsAppAccessibility.isWhatsAppFocusedOnTextInput() },
+                  composeText: { WhatsAppAccessibility.focusedTextValue() },
                   sendButtonExists: { WhatsAppAccessibility.whatsAppSendButtonExists() })
         }
     }
@@ -87,7 +92,8 @@ enum WhatsAppComposeWaiter {
     /// Polls until every stage is satisfied, the clock runs out, or the attempt
     /// budget runs out. Returns the outcome; never throws, never blocks past
     /// `timeout` by more than one poll interval.
-    static func wait(probe: Probe = .live, options: Options = Options()) -> Result {
+    static func wait(probe: Probe = .live, expectedText: String? = nil,
+                     options: Options = Options()) -> Result {
         let start = options.now()
         // A zero/negative budget still gets exactly one look, so a caller that
         // passes 0 gets a real answer instead of a vacuous timeout.
@@ -97,7 +103,7 @@ enum WhatsAppComposeWaiter {
 
         while true {
             attempts += 1
-            switch firstUnsatisfied(probe) {
+            switch firstUnsatisfied(probe, expectedText: expectedText) {
             case nil:
                 return .ready(attempts: attempts, elapsedMs: (options.now() - start) * 1000)
             case .some(let cause):
@@ -119,12 +125,13 @@ enum WhatsAppComposeWaiter {
 
     /// The first stage that is not satisfied, in dependency order, or nil when
     /// all of them are.
-    static func firstUnsatisfied(_ probe: Probe) -> Failure? {
+    static func firstUnsatisfied(_ probe: Probe, expectedText: String? = nil) -> Failure? {
         if !probe.isTrusted() { return .notTrusted }
         if !probe.appIsRunning() { return .appNotRunning }
         if !probe.hasWindow() { return .windowNotFound }
         if !probe.composeFieldFocused() { return .composeFieldNotFocused }
         if !probe.sendButtonExists() { return .sendButtonNotFound }
+        if let expectedText, probe.composeText() != expectedText { return .composeTextMismatch }
         return nil
     }
 }

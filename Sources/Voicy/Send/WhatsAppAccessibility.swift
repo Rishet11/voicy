@@ -5,11 +5,8 @@ import Foundation
 
 /// Raw Accessibility-tree primitives for the WhatsApp send path.
 ///
-/// READ-ONLY BY DESIGN. Every function here inspects state; none of them
-/// synthesizes input. There is deliberately no key-posting helper: driving
-/// WhatsApp's composer with a synthetic Return is send-path automation, and
-/// WhatsApp permanently bans accounts for it. Do not add one back. The user's
-/// own keypress inside WhatsApp is the send.
+/// AX inspection is read-only. The only input primitive is the explicit,
+/// post-confirmation Return in `postReturn()`.
 ///
 /// There is no `osascript` anywhere either: macOS attributes Accessibility
 /// permission to the process that *requests* it, so shelling out would put the
@@ -86,6 +83,16 @@ enum WhatsAppAccessibility {
         let err = AXUIElementCopyAttributeValue(focused, kAXValueAttribute as CFString, &value)
         guard err == .success, let v = value as? String else { return nil }
         return v
+    }
+
+    /// Posts Return only after the sender has verified the focused composer.
+    /// This is deliberately CGEventPost, never a shell or AppleScript path.
+    static func postReturn() {
+        let source = CGEventSource(stateID: .hidSystemState)
+        let down = CGEvent(keyboardEventSource: source, virtualKey: 36, keyDown: true)
+        let up = CGEvent(keyboardEventSource: source, virtualKey: 36, keyDown: false)
+        down?.post(tap: .cghidEventTap)
+        up?.post(tap: .cghidEventTap)
     }
 
     // MARK: - Readiness probes (read-only)

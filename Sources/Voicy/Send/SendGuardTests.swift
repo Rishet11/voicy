@@ -87,9 +87,10 @@ func runSendGuardTests() async -> (passed: Int, failed: Int) {
     // MARK: Composer wait — one case per failure cause
 
     func probe(trusted: Bool = true, running: Bool = true, window: Bool = true,
-               focused: Bool = true, button: Bool = true) -> WhatsAppComposeWaiter.Probe {
+               focused: Bool = true, text: String? = "hello", button: Bool = true) -> WhatsAppComposeWaiter.Probe {
         WhatsAppComposeWaiter.Probe(isTrusted: { trusted }, appIsRunning: { running },
                                     hasWindow: { window }, composeFieldFocused: { focused },
+                                    composeText: { text },
                                     sendButtonExists: { button })
     }
 
@@ -137,6 +138,7 @@ func runSendGuardTests() async -> (passed: Int, failed: Int) {
     let flaky = WhatsAppComposeWaiter.Probe(isTrusted: { true }, appIsRunning: { true },
                                             hasWindow: { true },
                                             composeFieldFocused: { polls += 1; return polls >= 4 },
+                                            composeText: { "hello" },
                                             sendButtonExists: { true })
     if case .ready(let attempts, _) = WhatsAppComposeWaiter.wait(probe: flaky, options: fastOptions()) {
         t.equal(attempts, 4, "the waiter keeps polling until the composer focuses")
@@ -191,10 +193,14 @@ func runSendGuardTests() async -> (passed: Int, failed: Int) {
     }
 
     func sender(_ blocklist: Blocklist, spy: OpenSpy,
-                probe p: WhatsAppComposeWaiter.Probe = probe()) -> WhatsAppSender {
+                probe p: WhatsAppComposeWaiter.Probe = probe(),
+                returnCount: Counter = Counter()) -> WhatsAppSender {
         WhatsAppSender(blocklist: blocklist, probe: p, waitOptions: fastOptions(),
-                       openURL: { spy.open($0) })
+                       openURL: { spy.open($0) },
+                       postReturn: { returnCount.value += 1 })
     }
+
+    final class Counter: @unchecked Sendable { var value = 0 }
 
     // A confirmed, unblocked contact opens the prefilled composer.
     let strangerSpy = OpenSpy()
@@ -233,8 +239,14 @@ func runSendGuardTests() async -> (passed: Int, failed: Int) {
     let liveSpy = OpenSpy()
     let live = await sender(openList, spy: liveSpy)
         .send(phone: firstContact, body: "hello", contactName: "Pulkit", dryRun: false)
-    t.equal(live, .prefilled, "a confirmed send prefills the composer")
+    t.equal(live, .sentVerified, "a confirmed send posts Return after verification")
     t.equal(liveSpy.opened, 1, "the live path opens the deep link exactly once")
+
+    let liveReturns = Counter()
+    let liveWithReturn = await sender(openList, spy: OpenSpy(), returnCount: liveReturns)
+        .send(phone: firstContact, body: "hello", contactName: "Pulkit", dryRun: false)
+    t.equal(liveWithReturn, .sentVerified, "verified composer reports sent")
+    t.equal(liveReturns.value, 1, "one confirmation posts exactly one Return")
 
     // Live path where the composer never appears: the outcome names the cause
     // instead of claiming success.
@@ -245,12 +257,21 @@ func runSendGuardTests() async -> (passed: Int, failed: Int) {
             "an unready composer is reported with its specific cause")
     t.equal(stuckSpy.opened, 1, "the unready path still opened the link once")
 
+    let mismatchReturns = Counter()
+    let mismatch = await sender(openList, spy: OpenSpy(), probe: probe(text: "different"),
+                                returnCount: mismatchReturns)
+        .send(phone: firstContact, body: "hello", contactName: "Pulkit", dryRun: false)
+    t.equal(mismatch, .prefilledNotReady(reason: WhatsAppComposeWaiter.Failure.composeTextMismatch.reason),
+            "text mismatch aborts before Return")
+    t.equal(mismatchReturns.value, 0, "text mismatch never posts Return")
+
     // Without Accessibility the send still works and reports honestly rather
     // than blocking on an observation it cannot make (Tier-1-only path).
     let untrustedSpy = OpenSpy()
     let untrusted = await sender(openList, spy: untrustedSpy, probe: probe(trusted: false))
         .send(phone: firstContact, body: "hello", contactName: "Pulkit", dryRun: false)
-    t.equal(untrusted, .prefilled, "no Accessibility still prefills; readiness is just unverified")
+    t.equal(untrusted, .prefilledNotReady(reason: WhatsAppComposeWaiter.Failure.notTrusted.reason),
+            "no Accessibility aborts auto-send")
     t.equal(untrustedSpy.opened, 1, "the Tier-1 path opens the link")
 
     return t.result

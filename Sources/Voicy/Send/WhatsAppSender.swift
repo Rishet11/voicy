@@ -1,14 +1,8 @@
 import AppKit
 import Foundation
 
-/// Orchestrates the send path: guard check, then open the WhatsApp deep link so
-/// the message is pre-filled in the composer. It stops there.
-///
-/// It deliberately does NOT press Return for the user. Synthesizing a keystroke
-/// into WhatsApp is send-path automation, and WhatsApp bans accounts for it
-/// permanently. The last inch is the user's own keypress inside WhatsApp, every
-/// time. `WhatsAppAccessibility` has no key-posting primitive at all, so this
-/// cannot be re-added by accident here.
+/// Orchestrates the confirmed WhatsApp send path: open, verify, then post one
+/// Return. No keystroke is possible before the guard accepts confirmation.
 ///
 /// Every decision about *whether* to open anything lives in `SendGuard`, which
 /// is pure and unit-tested. This type only performs the effect the guard
@@ -24,6 +18,9 @@ final class WhatsAppSender {
         /// has left the account. This is the only non-refusal outcome the app
         /// can produce.
         case prefilled
+        /// The exact confirmed body was verified in the focused composer and
+        /// one Return was posted.
+        case sentVerified
         /// Deep link opened, but the composer never became ready within the
         /// timeout. The message may still be sitting there; the user has to
         /// look. `reason` names the specific stage that failed.
@@ -49,15 +46,18 @@ final class WhatsAppSender {
     private let waitOptions: WhatsAppComposeWaiter.Options
     /// Injected so tests can exercise the open path without launching anything.
     private let openURL: (URL) -> Bool
+    private let postReturn: () -> Void
 
     init(blocklist: Blocklist = .load(),
          probe: WhatsAppComposeWaiter.Probe = .live,
          waitOptions: WhatsAppComposeWaiter.Options = WhatsAppComposeWaiter.Options(),
-         openURL: @escaping (URL) -> Bool = { NSWorkspace.shared.open($0) }) {
+         openURL: @escaping (URL) -> Bool = { NSWorkspace.shared.open($0) },
+         postReturn: @escaping () -> Void = { WhatsAppAccessibility.postReturn() }) {
         self.blocklist = blocklist
         self.probe = probe
         self.waitOptions = waitOptions
         self.openURL = openURL
+        self.postReturn = postReturn
     }
 
     /// Primary entry point.
@@ -101,7 +101,7 @@ final class WhatsAppSender {
             // and never the full number (last 4 only).
             log("DRY-RUN target=\(SendGuard.maskPhone(phone)) body=\(body.count) char(s) [content redacted]")
             log("DRY-RUN  1. would open the deep link via NSWorkspace (pre-fills composer)")
-            log("DRY-RUN  2. would stop there; the user presses Return inside WhatsApp")
+            log("DRY-RUN  2. would verify exact composer text, then post one Return")
             log("DRY-RUN  blocklist loaded: \(self.blocklist.count) entry(ies)")
             log("DRY-RUN  NOTHING was opened or typed.")
             return .dryRun
@@ -126,7 +126,18 @@ final class WhatsAppSender {
             return .failed("NSWorkspace.open failed")
         }
 
-        return await confirmComposerReady()
+        switch await confirmComposerReady(expectedText: body) {
+        case .ready:
+            log("POST Return after exact composer verification")
+            postReturn()
+            log("SEND: Return posted once after explicit Voicy confirmation")
+            return .sentVerified
+        case .notReady(let cause, let attempts, let elapsedMs, let timedOut):
+            log(String(format: "NOT READY: %@ (%d poll(s), %.0f ms, %@)",
+                       cause.reason, attempts, elapsedMs,
+                       timedOut ? "timed out" : "attempt budget exhausted"))
+            return .prefilledNotReady(reason: cause.reason)
+        }
     }
 
     /// Waits (bounded) for the composer to actually be ready, so the user is
@@ -135,23 +146,13 @@ final class WhatsAppSender {
     /// Accessibility is Tier 2 and optional. Without it we cannot observe
     /// anything, so we report the prefill and stop rather than pretending to
     /// have verified something. That keeps the Tier-1-only path fully working.
-    private func confirmComposerReady() async -> Outcome {
+    private func confirmComposerReady(expectedText: String) async -> WhatsAppComposeWaiter.Result {
         guard probe.isTrusted() else {
-            log("PREFILLED: message is in the composer, UNSENT. (Composer readiness not verified: Accessibility not granted.)")
-            return .prefilled
+            log("NOT READY: Accessibility permission is not granted")
+            return .notReady(cause: .notTrusted, attempts: 1, elapsedMs: 0, timedOut: false)
         }
 
-        switch WhatsAppComposeWaiter.wait(probe: probe, options: waitOptions) {
-        case .ready(let attempts, let elapsedMs):
-            log(String(format: "PREFILLED: composer ready after %d poll(s), %.0f ms. UNSENT; the user presses Return.",
-                       attempts, elapsedMs))
-            return .prefilled
-        case .notReady(let cause, let attempts, let elapsedMs, let timedOut):
-            log(String(format: "NOT READY: %@ (%d poll(s), %.0f ms, %@)",
-                       cause.reason, attempts, elapsedMs,
-                       timedOut ? "timed out" : "attempt budget exhausted"))
-            return .prefilledNotReady(reason: cause.reason)
-        }
+        return WhatsAppComposeWaiter.wait(probe: probe, expectedText: expectedText, options: waitOptions)
     }
 
     private func log(_ message: String) {

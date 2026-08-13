@@ -35,23 +35,22 @@ Answers for this path as found:
   permanent-ban risk: from WhatsApp's side it is indistinguishable from a bot
   driving the client.
 
-Removed. `WhatsAppSender` no longer posts keystrokes, `postReturn` is gone from
-`WhatsAppAccessibility`, and `Pipeline.handleSend` now takes the prefill path
-unconditionally. See section 2.
+Restored by owner decision. `WhatsAppSender` posts exactly one Return only after
+the user confirms the Voicy card, WhatsApp is running with a focused compose
+field, and the field value exactly matches the confirmed body. Any failure
+aborts without posting Return.
 
-### Path B: confirm card -> deep-link prefill only (kept, acceptable)
+### Path B: confirm card -> verified deep-link auto-send
 
-`Core/Pipeline.swift:395` `openPrefilledInWhatsApp` opens
-`whatsapp://send?phone=...&text=...` and stops. The message sits unsent in the
-compose field until the user presses Return themselves inside WhatsApp.
+The sender opens `whatsapp://send?phone=...&text=...`, verifies the focused
+compose field contains the exact body, then posts one Return.
 
 Answers for this path as found:
 - Without explicit human confirmation? No, same confirm card gate.
-- Without a user keystroke? The chat window opens and text is prefilled without a
-  keystroke inside WhatsApp, but nothing is sent. No message leaves the account
-  without the user's own Return.
+- Without a user keystroke? Yes, but only after the mandatory Voicy confirmation
+  and exact AX verification. No blind or timer-only Return is possible.
 
-This is the only send path that remains.
+This is the only send path that remains. Each confirmation authorizes one message.
 
 ### Path C: "not found" confirm card (no send)
 
@@ -171,12 +170,11 @@ it observes, it never types.
   `maxAttempts`, so a misbehaving clock cannot produce an unbounded loop
 - one distinct failure per cause, reported in dependency order so the first
   thing actually wrong is what the user is told: `notTrusted`, `appNotRunning`,
-  `windowNotFound`, `composeFieldNotFocused`, `sendButtonNotFound`
-- new outcome `.prefilledNotReady(reason:)`: the link opened but the composer
-  was never observed ready. No alias is learned on this path, because we cannot
-  be sure the right chat is in front of the user.
-- Accessibility is Tier 2. Without it the waiter is skipped entirely and the
-  send still prefills, reporting honestly that readiness was not verified.
+  `windowNotFound`, `composeFieldNotFocused`, `sendButtonNotFound`, and
+  `composeTextMismatch`
+- `.prefilledNotReady(reason:)` names the failed stage. No Return is posted and
+  no alias is learned on this path.
+- Accessibility is required for auto-send. Without it the sender aborts.
 
 ### Nothing logs message content
 
@@ -205,7 +203,7 @@ NOT testable without a human at the keyboard, and therefore still unverified:
 - that the real WhatsApp AX tree exposes the shapes the live `Probe` expects
   (a non-empty window list, a focused text area, a button described "send")
 - that the deep link lands in the correct chat on a real machine
-- the send itself, which is the user's own Return inside WhatsApp
+- the real WhatsApp AX tree and the actual send on a human-owned account
 
 ### Real-user policy
 
