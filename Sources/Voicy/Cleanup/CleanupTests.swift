@@ -65,6 +65,15 @@ public func runCleanupTests() -> (passed: Int, failed: Int) {
     t.check(!TranscriptCleaner.isDeletionOnly(original: "I will be there", cleaned: "I will be there there"),
             "adding an extra word (even a duplicate) is rejected")
 
-    let (passed, failed) = t.result
+    var (passed, failed) = t.result
+
+    // These suites live in Cleanup/ and Contacts/ and are wired in here so that
+    // `--unit-tests` runs them without Testing/TestHarness.swift needing to know
+    // about every file. Their counts fold into the "cleanup" line.
+    for suite in [runTextQualityTests(), runRecipientTests(), runPhoneticTests()] {
+        passed += suite.passed
+        failed += suite.failed
+    }
+
     return (passed, failed)
 }

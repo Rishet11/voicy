@@ -49,6 +49,13 @@ public final class AliasStore: @unchecked Sendable {
         return entries[normalized]
     }
 
+    /// The `[normalized spoken phrase: contact identifier]` map that
+    /// `ContactResolver.resolve(spoken:contacts:aliases:)` takes.
+    public var lookup: [String: String] {
+        lock.lock(); defer { lock.unlock() }
+        return entries.mapValues(\.contactIdentifier)
+    }
+
     /// All resolved contact identifiers currently aliased.
     public var knownIdentifiers: Set<String> {
         lock.lock(); defer { lock.unlock() }
