@@ -180,3 +180,33 @@ floor), which is the wanted behavior: Voicy asks instead of guessing.
 message body. `TextFormatter.format` is not called anywhere in the shipping
 path, so none of section 4 reaches a real message until that line runs it.
 `Core/` is not mine to edit; flagged to the orchestrator.
+
+## 7. Filler removal finished in the deletion-only floor (2026-08-13)
+
+`TranscriptCleaner.rulesOnly` is what the shipping path actually calls
+(`Core/Pipeline.swift:316`), so the disfluency rules that had only ever existed
+inside `TextFormatter` were not reaching real messages. Closed three gaps:
+
+1. **One filler list.** `TranscriptCleaner.fillerWords` is now the only one;
+   `TextFormatter.removeDisfluencies` calls `TranscriptCleaner.isFiller`. The two
+   lists had already drifted (`umm`, `uhh` existed in one of them only).
+2. **Multi-word false starts.** `rulesOnly` compared adjacent single tokens, so
+   "I was I was going to call you" came through untouched. It now deletes the
+   first of two adjacent identical runs, 4-grams first down to 1, skipping any
+   run that ends a sentence so "that report is done. that report was late"
+   survives. Same rule, same order as `TextFormatter`, and a corpus test asserts
+   the two passes agree on every row.
+3. **Fillers that are real words.** `er`/`ah` collide with acronyms a person
+   dictates: "take him to the ER" lost the ER. An all-letters token in caps is
+   an acronym and is kept. Known limit, deliberately not guessed at: if the
+   recognizer emits "the er" lowercase for "the ER", it is still deleted, and
+   nothing in the token stream can distinguish that from a real hesitation.
+
+Also: a deleted filler no longer takes a sentence mark with it
+("I am on my way um." -> "I am on my way.").
+
+Measured on the corpus (47 table rows + 3 degenerate inputs; the "51-row"
+figure in commit 0ae0615's message overcounts): old vs new `rulesOnly` output
+differs on **2 rows, both improvements** (the two false-start rows above), **48
+unchanged, 0 regressions**. `TextFormatter.format` output is byte-identical on
+all 47 rows before and after, so the end-to-end corpus stays 47/47.

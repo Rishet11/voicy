@@ -116,15 +116,15 @@ public enum TextFormatter {
 
     // MARK: - 1. Disfluencies
 
-    private static let fillers: Set<String> = ["um", "uh", "erm", "hmm", "ah", "er", "uhh", "umm"]
-
     /// Drops fillers, adjacent repeated words, and repeated multi-word false
     /// starts ("I was I was going to"). Deletion only: no token is ever altered.
+    ///
+    /// The filler list and the acronym guard live in `TranscriptCleaner` so the
+    /// deletion-only floor and this pass cannot disagree about what a filler is.
     static func removeDisfluencies(_ tokens: [String]) -> [String] {
         var kept: [String] = []
         for token in tokens {
-            let b = bare(token)
-            if !b.isEmpty, fillers.contains(b) {
+            if TranscriptCleaner.isFiller(token) {
                 // A filler carrying sentence punctuation ("um,") must not take
                 // the punctuation with it if that punctuation ends a sentence.
                 let punct = trailingPunct(token)
