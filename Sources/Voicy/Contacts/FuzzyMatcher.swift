@@ -260,8 +260,8 @@ public final class FuzzyMatcher: Sendable {
                     // "is this the SAME name with different spacing?" A real split
                     // is near-identical once squashed ("paulkit" vs "pulkit",
                     // "sidharth" vs "siddharth" both score >0.93). Without a floor
-                    // this branch scored 0.79 for "siddharth" vs "sidkapoor" —
-                    // two different people — purely on shared letters and a shared
+                    // this branch scored 0.79 for "siddharth" vs "sidkapoor":
+                    // two different people, purely on shared letters and a shared
                     // "sid" prefix, which is uncomfortably close to the 0.80
                     // auto-resolve threshold.
                     if squashedScore >= Self.splitNameSimilarityFloor {
@@ -323,6 +323,22 @@ public final class FuzzyMatcher: Sendable {
                     : 0.6 + (ratio / Self.lengthDampingKneeRatio) * 0.4
                 s = JaroWinkler.similarity(query, v) * weight * lengthDamping
 
+                // Preserve consonant identity when a recognizer changes a
+                // vowel or truncates the final vowel sound. "Polka" and
+                // "Palka" retain the same consonant frame as "Pulkit".
+                // Require a meaningful frame and comparable lengths so this
+                // cannot turn short fragments into confident contacts.
+                let queryFrame = consonantSkeleton(query)
+                let variantFrame = consonantSkeleton(v)
+                let frameRatio = Double(min(queryFrame.count, variantFrame.count))
+                    / Double(max(queryFrame.count, variantFrame.count))
+                if queryFrame.count >= 3, frameRatio >= 0.75 {
+                    let frameScore = JaroWinkler.similarity(queryFrame, variantFrame)
+                    if frameScore >= 0.90 {
+                        best = max(best, min(0.90, frameScore * weight))
+                    }
+                }
+
                 // A variant that literally BEGINS with what was said is a
                 // deliberate exception: saying "Sid" to reach "Siddharth" is
                 // normal, and short-to-long is how people actually abbreviate.
@@ -337,7 +353,7 @@ public final class FuzzyMatcher: Sendable {
         // "Pulkit", "Adidi" for "Aditi"). It can raise `best` only up to
         // phoneticRecallCeiling, never higher, so it cannot turn an already
         // -weak orthographic match into a confident one either.
-        if usePhoneticBonus && best < ResolutionThresholds.notFoundFloor
+        if usePhoneticBonus && best < ResolutionThresholds.resolveFloor
             && query.count >= Self.minimumFuzzyQueryLength {
             let foldedQuery = PhoneticFolder.fold(query)
             for (v, weight) in weighted {
@@ -363,7 +379,18 @@ public final class FuzzyMatcher: Sendable {
                 }
 
                 if sim >= Self.phoneticMatchFloor {
-                    best = max(best, min(Self.phoneticRecallCeiling, sim * weight))
+                    let comparableLength = Double(min(query.count, v.count))
+                        / Double(max(query.count, v.count)) >= Self.lengthDampingKneeRatio
+                    if best >= ResolutionThresholds.notFoundFloor && comparableLength {
+                        // Phonetics may corroborate a strong orthographic
+                        // near-match, but never manufacture a candidate from
+                        // phonetics alone. The cap is above recall-only mode
+                        // and below the resolver's confidence floor only when
+                        // no orthographic evidence exists.
+                        best = max(best, min(0.90, sim * weight))
+                    } else {
+                        best = max(best, min(Self.phoneticRecallCeiling, sim * weight))
+                    }
                 }
             }
         }
@@ -374,6 +401,10 @@ public final class FuzzyMatcher: Sendable {
     private struct Variant {
         let text: String
         let weight: Double
+    }
+
+    private func consonantSkeleton(_ value: String) -> String {
+        String(value.filter { !$0.isWhitespace && !"aeiou".contains($0) })
     }
 
     /// Every string this contact might be called, weighted by how likely a

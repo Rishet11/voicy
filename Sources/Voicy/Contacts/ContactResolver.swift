@@ -30,6 +30,20 @@ public final class ContactResolver: Sendable {
             return .resolved(contact)
         }
 
+        // An exact spoken name outranks a near-spelling collision. Multiple
+        // contacts with that exact name still remain ambiguous.
+        let exact = contacts.filter { contact in
+            [contact.givenName, contact.nickname, contact.familyName,
+             contact.organizationName, contact.displayName]
+                .contains { NameNormalizer.normalize($0) == normSpoken }
+        }
+        if exact.count == 1, let contact = exact.first {
+            return .resolved(contact)
+        }
+        if exact.count > 1 {
+            return .ambiguous(exact)
+        }
+
         // 2. Rank by name similarity.
         let ranked = matcher.rank(query: spoken, among: contacts)
         guard let best = ranked.first else { return .notFound }
