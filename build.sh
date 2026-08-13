@@ -58,3 +58,16 @@ fi
 
 echo "==> Done: $APP_BUNDLE"
 echo "Run it with: open \"$APP_BUNDLE\""
+# Guard against the stale-bundle trap. An older ad-hoc signed Voicy.app with the
+# same bundle id is a DIFFERENT code identity to macOS, so Accessibility and
+# Input Monitoring grants do not apply to it and auto-send silently degrades to
+# "press Enter yourself". Launching the wrong copy cost a real debugging session.
+if [ -e "$ROOT/build/Voicy.app" ]; then
+  echo "==> WARNING: a second app bundle exists at build/Voicy.app"
+  echo "    It is almost certainly stale and differently signed. Launching it"
+  echo "    breaks auto-send. Use dist/Voicy.app. Renaming it out of the way."
+  mv "$ROOT/build/Voicy.app" "$ROOT/build/Voicy.app.STALE-$(date +%s)"
+fi
+
+echo "==> Signature identity (Accessibility is keyed to this, not the app name):"
+codesign -dv "$APP_BUNDLE" 2>&1 | grep -E "Identifier|TeamIdentifier|Signature" | sed 's/^/    /'

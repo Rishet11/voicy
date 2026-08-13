@@ -410,13 +410,35 @@ final class Pipeline {
 
     /// Permission-free, on-demand notice (after WhatsApp is open), not a launch-time
     /// permission dialog — consistent with the progressive-permission model.
+    ///
+    /// Says WHY it did not send by itself. The old wording just told the user to
+    /// press Enter, which left "why didn't auto-send work?" unanswerable without
+    /// reading the source. The usual cause is not a missing grant at all: it is
+    /// running a differently-signed copy of the app. macOS keys Accessibility to
+    /// the code signature, so a stale ad-hoc build with the same bundle id is a
+    /// different identity and is not trusted, no matter what the checkbox says.
     private func tellUserToPressEnter() {
         let alert = NSAlert()
         alert.messageText = "Message ready in WhatsApp"
-        alert.informativeText = "WhatsApp is open with your message pre-filled. Press Enter there to send it."
+        alert.informativeText = """
+            Press Enter in WhatsApp to send it.
+
+            Voicy did not send it for you because it does not have Accessibility \
+            permission. If you have already granted it, you are probably running a \
+            different build of Voicy than the one you granted: macOS ties this \
+            permission to the app's signature, not its name.
+
+            Running from: \(Bundle.main.bundleURL.path)
+            """
         alert.alertStyle = .informational
         alert.addButton(withTitle: "OK")
-        alert.runModal()
+        alert.addButton(withTitle: "Open Accessibility Settings")
+        if alert.runModal() == .alertSecondButtonReturn {
+            let pane = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+            if let url = URL(string: pane) {
+                NSWorkspace.shared.open(url)
+            }
+        }
     }
 // MARK: - Aliases ("correct once and it remembers")
 
