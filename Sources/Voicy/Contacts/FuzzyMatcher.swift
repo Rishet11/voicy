@@ -131,6 +131,11 @@ public final class FuzzyMatcher: Sendable {
     /// misheard version of a real name reaches ("krishna" vs "krishnan" ≈ 0.97).
     static let multiTokenAnchorFloor: Double = 0.85
 
+    /// A second token that names a different person must also be reasonably
+    /// close. Matching only one token let "Aditi Menon" resolve to Aditi Rao,
+    /// which is a wrong-person send rather than a safe refusal.
+    static let multiTokenEachFloor: Double = 0.75
+
     /// Shortest single-word query that may fuzzy-match at all. Two letters carry
     /// almost no signal, and Jaro-Winkler inflates short-string similarity badly:
     /// the audio harness transcribed "Say hi to Aarav" as "Say hi to our ab.",
@@ -290,7 +295,8 @@ public final class FuzzyMatcher: Sendable {
                 // strong: "Rahul bhai" still ranks (rahul anchors at 1.0) and
                 // lands in `.ambiguous`, so Voicy asks rather than guessing or
                 // wrongly claiming nobody matched.
-                guard (perToken.max() ?? 0) >= Self.multiTokenAnchorFloor else { continue }
+                guard (perToken.max() ?? 0) >= Self.multiTokenAnchorFloor,
+                      (perToken.min() ?? 0) >= Self.multiTokenEachFloor else { continue }
 
                 s = (perToken.reduce(0, +) / Double(perToken.count)) * weight
             } else {
@@ -320,7 +326,7 @@ public final class FuzzyMatcher: Sendable {
                 // A variant that literally BEGINS with what was said is a
                 // deliberate exception: saying "Sid" to reach "Siddharth" is
                 // normal, and short-to-long is how people actually abbreviate.
-                if v.hasPrefix(query) { best = max(best, 0.97 * weight) }
+                if query.count >= 4 && v.hasPrefix(query) { best = max(best, 0.97 * weight) }
             }
             best = max(best, s)
         }

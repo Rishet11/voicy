@@ -8,6 +8,7 @@ import Foundation
 // answer the next time.
 
 public func runRecipientTests() -> (passed: Int, failed: Int) {
+    let evaluation = runRecipientResolutionEval()
     var t = TestRun("recipient")
 
     let resolver = ContactResolver()
@@ -166,7 +167,10 @@ public func runRecipientTests() -> (passed: Int, failed: Int) {
 
     try? FileManager.default.removeItem(at: tmp.deletingLastPathComponent())
 
-    return t.result
+    var (passed, failed) = t.result
+    passed += evaluation.passed
+    failed += evaluation.failed
+    return (passed, failed)
 }
 
 /// The `[spoken: contactIdentifier]` map `ContactResolver` expects.
