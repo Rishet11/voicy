@@ -6,10 +6,20 @@ import Foundation
 public func runCleanupTests() -> (passed: Int, failed: Int) {
     var t = TestRun("cleanup")
 
-    // --- rulesOnly: fillers
+    // --- rulesOnly: fillers at start/middle/end (required)
     t.equal(TranscriptCleaner.rulesOnly("um I will be there"), "I will be there", "leading filler removed")
     t.equal(TranscriptCleaner.rulesOnly("I will uh be there"), "I will be there", "mid-sentence filler removed")
     t.equal(TranscriptCleaner.rulesOnly("I will be there um"), "I will be there", "trailing filler removed")
+    t.equal(TranscriptCleaner.rulesOnly("erm I will be there"), "I will be there", "leading filler erm removed")
+    t.equal(TranscriptCleaner.rulesOnly("I will be there er"), "I will be there", "trailing filler er removed")
+    t.equal(TranscriptCleaner.rulesOnly("hmm I think so"), "I think so", "leading filler hmm removed")
+
+    // --- rulesOnly: repeated fillers (required)
+    t.equal(TranscriptCleaner.rulesOnly("um um I will be there"), "I will be there", "repeated leading fillers removed")
+    t.equal(TranscriptCleaner.rulesOnly("I will be there um um"), "I will be there", "repeated trailing fillers removed")
+    t.equal(TranscriptCleaner.rulesOnly("I um uh will be there"), "I will be there", "consecutive different fillers removed")
+    t.equal(TranscriptCleaner.rulesOnly("um uh erm I will be there"), "I will be there", "three fillers at start removed")
+    t.equal(TranscriptCleaner.rulesOnly("I will um um be there"), "I will be there", "repeated filler mid-sentence removed")
 
     // --- rulesOnly: stutters
     t.equal(TranscriptCleaner.rulesOnly("I I will be there"), "I will be there", "leading repeated word removed")
@@ -19,18 +29,25 @@ public func runCleanupTests() -> (passed: Int, failed: Int) {
     // --- rulesOnly: unchanged text
     t.equal(TranscriptCleaner.rulesOnly("I will be there"), "I will be there", "clean text unchanged")
 
-    // --- rulesOnly: empty / whitespace, no crash
+    // --- rulesOnly: empty / whitespace, no crash (required)
     t.equal(TranscriptCleaner.rulesOnly(""), "", "empty string handled")
     t.equal(TranscriptCleaner.rulesOnly("   "), "   ", "whitespace-only handled")
+    t.equal(TranscriptCleaner.rulesOnly("\n\t  "), "\n\t  ", "newline whitespace handled")
 
     // --- rulesOnly: all-fillers returns original unchanged (would otherwise empty out)
     t.equal(TranscriptCleaner.rulesOnly("um uh erm"), "um uh erm", "all-filler sentence returns original")
+    t.equal(TranscriptCleaner.rulesOnly("um"), "um", "single filler returns original (not empty)")
+    t.equal(TranscriptCleaner.rulesOnly("um um um"), "um um um", "repeated single filler type returns original")
 
-    // --- rulesOnly: words we must NOT remove
+    // --- rulesOnly: words we must NOT remove (filler word that is real word in context, required)
     t.equal(TranscriptCleaner.rulesOnly("I will like be there"), "I will like be there", "'like' preserved")
     t.equal(TranscriptCleaner.rulesOnly("you know I will be there"), "you know I will be there", "'you know' preserved")
     t.equal(TranscriptCleaner.rulesOnly("actually I will be there"), "actually I will be there", "'actually' preserved")
     t.equal(TranscriptCleaner.rulesOnly("basically I will be there"), "basically I will be there", "'basically' preserved")
+    t.equal(TranscriptCleaner.rulesOnly("her umbrella is here"), "her umbrella is here", "'her' not treated as 'er', 'umbrella' not as 'um'")
+    t.equal(TranscriptCleaner.rulesOnly("The umbrella is blue"), "The umbrella is blue", "'umbrella' preserved")
+    t.equal(TranscriptCleaner.rulesOnly("I like her idea"), "I like her idea", "real words containing filler substrings preserved")
+    t.equal(TranscriptCleaner.rulesOnly("Hmm, I think her answer is um good"), "I think her answer is good", "mixed fillers and real words with substrings")
 
     // --- rulesOnly: non-adjacent repeats must be preserved (deleting them would
     // be an over-aggressive, non-conservative edit — "that report" appearing
@@ -41,9 +58,14 @@ public func runCleanupTests() -> (passed: Int, failed: Int) {
 
     // --- rulesOnly: casing/punctuation preserved on kept words
     t.equal(TranscriptCleaner.rulesOnly("Um, I will be there."), "I will be there.", "leading filler with punctuation removed, rest untouched")
+    t.equal(TranscriptCleaner.rulesOnly("I will, uh, be there"), "I will, be there", "filler with surrounding punctuation removed")
+    // Span deletion guarantee: kept words are byte-identical slices
+    let original = "Um I WILL be there"
+    let cleaned = TranscriptCleaner.rulesOnly(original)
+    t.check(cleaned == "I WILL be there", "kept words retain original casing via span deletion")
+    t.check(TranscriptCleaner.isDeletionOnly(original: original, cleaned: cleaned), "span deletion is deletion-only")
 
     // --- rulesOnly: repeated fillers, in every position
-    t.equal(TranscriptCleaner.rulesOnly("um um I will be there"), "I will be there", "repeated leading fillers removed")
     t.equal(TranscriptCleaner.rulesOnly("I will uh uh be there"), "I will be there", "repeated mid fillers removed")
     t.equal(TranscriptCleaner.rulesOnly("I will be there um uh"), "I will be there", "run of different trailing fillers removed")
     t.equal(TranscriptCleaner.rulesOnly("um I uh will erm be hmm there"), "I will be there", "a filler between every word removed")

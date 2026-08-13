@@ -205,6 +205,12 @@ inside `TextFormatter` were not reaching real messages. Closed three gaps:
 Also: a deleted filler no longer takes a sentence mark with it
 ("I am on my way um." -> "I am on my way.").
 
+These sit on top of the range-based tokenizer from commit ee5efbd (two workers
+landed on this file at once; that commit's span-deletion tokenizer is the base
+here, and its defensive `isDeletionOnly` gate on the result is kept). Deletions
+are character spans on the original and kept words are original slices, so the
+body is never regenerated.
+
 Measured on the corpus (47 table rows + 3 degenerate inputs; the "51-row"
 figure in commit 0ae0615's message overcounts): old vs new `rulesOnly` output
 differs on **2 rows, both improvements** (the two false-start rows above), **48
