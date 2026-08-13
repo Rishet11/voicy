@@ -13,23 +13,25 @@ import Foundation
 /// paraphrase. Kept words are byte-identical slices of the original.
 public enum TranscriptCleaner {
 
-    /// Standalone filler words removed when they appear as their own word,
-    /// case-insensitively. Deliberately conservative: "like", "you know",
-    /// "actually", "basically" are NOT here because they often carry meaning.
+    /// The one named source for the rule-based hesitation matcher.
     ///
-    /// This is the one filler list in the codebase. `TextFormatter` reads it too,
-    /// so the deletion-only floor and the formatting pass can never drift apart.
-    /// "uhh"/"umm" are common lengthened variants.
-    static let fillerWords: Set<String> = ["um", "umm", "uh", "uhh", "erm", "hmm", "ah", "er"]
+    /// Not a vocabulary. A token matches when its letters are a short vocalized
+    /// pause: a vowel run plus h/m/r (lengthened forms included), or a hum.
+    /// Discourse markers ("like", "you know", "matlab") are not hesitation
+    /// sounds; the on-device model decides those. `TextFormatter` uses the
+    /// same matcher via `isFiller`, so the two passes cannot drift.
+    static let hesitationSound = "^u+h+$|^u+m+$|^e+r+m*$|^a+h+$|^h+m+$|^e+h+$"
 
-    /// True when a token is a disfluency rather than a real word.
+    /// True when a token is a hesitation sound rather than a real word.
     ///
-    /// The guard that matters: several fillers collide with acronyms a person
-    /// actually dictates ("take him to the ER", "the AH gate"). An all-letters
-    /// token in caps is an acronym, never an "uh", so it is kept.
+    /// The guard that matters: several hesitation shapes collide with acronyms
+    /// a person actually dictates ("take him to the ER", "the AH gate"). An
+    /// all-letters token in caps is an acronym, never a pause, so it is kept.
     static func isFiller(_ token: some StringProtocol) -> Bool {
         let b = bareLower(Substring(token))
-        guard !b.isEmpty, fillerWords.contains(b) else { return false }
+        guard !b.isEmpty,
+              b.range(of: hesitationSound, options: .regularExpression) == b.startIndex..<b.endIndex
+        else { return false }
         return !isAcronym(token)
     }
 

@@ -119,8 +119,9 @@ public enum TextFormatter {
     /// Drops fillers, adjacent repeated words, and repeated multi-word false
     /// starts ("I was I was going to"). Deletion only: no token is ever altered.
     ///
-    /// The filler list and the acronym guard live in `TranscriptCleaner` so the
-    /// deletion-only floor and this pass cannot disagree about what a filler is.
+    /// The hesitation-sound matcher and the acronym guard live in
+    /// `TranscriptCleaner` so the deletion-only floor and this pass cannot
+    /// disagree about what a hesitation is.
     static func removeDisfluencies(_ tokens: [String]) -> [String] {
         var kept: [String] = []
         for token in tokens {
