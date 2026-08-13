@@ -449,3 +449,61 @@ inspected at roughly 22% scale, and `ao browser screenshot` started returning
 read; the hero and the slice section render correctly. **Treat responsive and
 light-mode rendering as unverified** and hand that to whoever implements the new
 design.
+
+---
+
+# Pass 2: adversarial re-read (after 2b9d245)
+
+Fresh-eyes pass over `index.html` and `styles.css` as committed.
+
+## What was still slop
+
+| Before | After | Why |
+|---|---|---|
+| `A hotkey, a slice, and a confirm card.` (closer) | `One key held down, and the message is sitting in the right chat.` | Three-noun triad, the most recognizable AI cadence on the page, and it described the implementation instead of the result. |
+| eyebrow `the whole idea` | `how the sentence is cut` | Announces importance instead of saying anything. Labels like this are filler. |
+| `Questions` (FAQ heading) | `Before you build it` | A category name, not a sentence. The new one tells the reader when to read it. |
+| `The other half` | `Dictation solved the wrong half` | Cryptic two-word heading that only makes sense after the paragraph below it. |
+| `Voice notes you can read` | `Voice notes: decoded, not yet readable` | The section's own body says transcription does not work. The heading promised the opposite. |
+| `Dictation is solved. None of it knows...` | longer, varied rewrite | Three clipped sentences in a row is the uniform-rhythm tell. Lengths now vary. |
+
+Automated sweep for em-dashes, `not just X but Y`, seamless, robust, delve,
+leverage, "worth noting", "in today's", and the usual superlatives: zero hits in
+either file.
+
+## Claim deleted as unsupported
+
+`Palka` was listed as an output of Apple's recognizer for "Pulkit". It appears in
+`Contacts/PhoneticTests.swift` as a fixture, but **no run log in
+`Speech/ASR-NOTES.md` ever produced it** — the measured mangles are Polkit,
+Polka, Paul Kit, Paul Kitt and Paul. Removed. The table caption was also changed
+from "across repeated runs of Voicy's own clips" to "over 22 recorded clips in
+our own test harness", which is the number ASR-NOTES actually records.
+
+Both remaining quotes (andersonkl, jpxoi) are verbatim from
+`research/SOCIAL-PROOF.md` with attribution and link. No quote or implied
+testimonial exists for either NOTHING FOUND category (Indian-name mangling,
+slow WhatsApp Desktop typing); the name section argues from our own measurements
+only.
+
+## Overflow: measured, not assumed
+
+Method: copied `index.html` + `styles.css` to a scratch dir, loaded the copy in a
+fixed-width `<iframe>` inside headless Chrome (`--headless
+--allow-file-access-from-files`, host window 1600x1000, so the iframe gives a
+true CSS viewport at any width — Chrome clamps its own window to 500px minimum,
+which is why a plain `--window-size=390` silently reports 500). An injected
+script compares `documentElement.scrollWidth` / `body.scrollWidth` to
+`clientWidth`, and walks every element for a `getBoundingClientRect()` that
+crosses the viewport edge.
+
+| Viewport | doc scrollWidth | body scrollWidth | elements crossing the edge |
+|---|---|---|---|
+| 320 | 320 | 320 | 0 |
+| 390 | 390 | 390 | 0 |
+| 768 | 768 | 768 | 0 |
+| 1440 | 1440 | 1440 | 0 |
+
+`overflow-x` computes to `visible` on both `body` and `html`, so nothing is being
+clipped to hide a wide child. The only off-canvas element is `.skip-link` at
+`left:-9999px`, which is the intended accessibility pattern and is excluded.

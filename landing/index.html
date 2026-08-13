@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Voicy: say who and what, and it is typed in WhatsApp</title>
+<title>Voicy: say who and what, and WhatsApp is already typed</title>
 <meta name="description" content="Hold Ctrl+Space, say who and what. WhatsApp opens with your exact words in the right chat. On-device, your words never rewritten, no WhatsApp API. macOS, open source, early.">
 <link rel="stylesheet" href="styles.css">
 </head>
@@ -53,7 +53,7 @@
   <!-- ============ THE BIG ONE: the slicing mechanism ============ -->
   <section class="slice" id="slice" aria-labelledby="slice-h">
     <div class="wrap">
-      <p class="eyebrow eyebrow-inv">the whole idea</p>
+      <p class="eyebrow eyebrow-inv">how the sentence is cut</p>
       <h2 id="slice-h">What happens to your sentence</h2>
       <p class="lede lede-inv">Most dictation tools regenerate your text. Voicy cuts two spans out of it.</p>
 
@@ -80,8 +80,8 @@
   <section class="section" id="why" aria-labelledby="why-h">
     <div class="wrap two-col">
       <div>
-        <h2 id="why-h">The other half</h2>
-        <p>Dictation is solved. None of it knows who you are talking to, so you still <kbd>Cmd</kbd><kbd>Tab</kbd> and scroll past two hundred chats. The typing was never the slow part.</p>
+        <h2 id="why-h">Dictation solved the wrong half</h2>
+        <p>Getting your words down is a solved problem. None of those tools know who you are talking to, so you still <kbd>Cmd</kbd><kbd>Tab</kbd> into WhatsApp and scroll past two hundred chats to find one person. Typing was never the slow part.</p>
       </div>
       <blockquote class="quote">
         <p>&ldquo;dictation gets my words correct but then it decides I must mean something else&rdquo;</p>
@@ -96,12 +96,12 @@
       <h2 id="names-h">Indian names break the recognizer</h2>
 
       <table class="mangle">
-        <caption>Apple's on-device recognizer, across repeated runs of Voicy's own clips</caption>
+        <caption>Apple's on-device recognizer, over 22 recorded clips in our own test harness</caption>
         <thead>
           <tr><th scope="col">Spoken</th><th scope="col">What comes back</th></tr>
         </thead>
         <tbody>
-          <tr><th scope="row">Pulkit</th><td><span class="wrong">Polkit</span> <span class="wrong">Polka</span> <span class="wrong">Paul Kit</span> <span class="wrong">Palka</span></td></tr>
+          <tr><th scope="row">Pulkit</th><td><span class="wrong">Polkit</span> <span class="wrong">Polka</span> <span class="wrong">Paul Kit</span></td></tr>
           <tr><th scope="row">Aarav</th><td><span class="wrong">Arav</span> <span class="wrong">our ab</span> <span class="wrong">our ad</span></td></tr>
         </tbody>
       </table>
@@ -172,7 +172,7 @@
   <section class="section section-narrow" id="voicenotes" aria-labelledby="vn-h">
     <div class="wrap">
       <p class="eyebrow eyebrow-warn">half done, not wired in</p>
-      <h2 id="vn-h">Voice notes you can read</h2>
+      <h2 id="vn-h">Voice notes: decoded, not yet readable</h2>
       <p>Decoding real WhatsApp voice notes works, proven on real files. Transcribing them does not: the ones we sampled are Hindi and Punjabi, and the English model turns those into confident nonsense. It needs language selection before it ships.</p>
       <blockquote class="quote quote-inline">
         <p>&ldquo;WhatsApp's voice note transcription on desktop is either missing entirely or very inaccurate for me.&rdquo;</p>
@@ -184,7 +184,7 @@
   <!-- ============ FAQ ============ -->
   <section class="section" id="faq" aria-labelledby="faq-h">
     <div class="wrap">
-      <h2 id="faq-h">Questions</h2>
+      <h2 id="faq-h">Before you build it</h2>
       <p class="spec"><span>macOS 26</span><span>Apple Silicon</span><span>WhatsApp Desktop</span><span>offline except delivery</span></p>
       <div class="faq">
         <details>
@@ -205,7 +205,7 @@
 
   <section class="closer">
     <div class="wrap">
-      <p class="closer-line">A hotkey, a slice, and a confirm card.</p>
+      <p class="closer-line">One key held down, and the message is sitting in the right chat.</p>
       <a class="btn btn-primary" href="https://github.com/Rishet11/voicy">Read the source</a>
       <a class="btn btn-ghost" href="pitch.html">Why we built it this way</a>
     </div>
