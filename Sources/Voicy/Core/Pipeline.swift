@@ -166,6 +166,13 @@ final class Pipeline {
             await TranscriberWarmup.warm(self.transcriber)
         }
 
+        // Pay the one-time FoundationModels load before the first dictation.
+        // Cleanup itself has a hard 250 ms budget, so a slow or unavailable
+        // model can never hold the user's live path open.
+        Task { @MainActor in
+            await LLMCleaner().warm()
+        }
+
         // Same idea for the audio graph. A cold AVAudioEngine start costs ~296 ms
         // against a 100 ms budget, and that delay does not just look slow, it
         // eats the beginning of the sentence. Prewarming allocates the graph
@@ -343,12 +350,9 @@ final class Pipeline {
 
         // Disfluency cleanup. Deletion only, and double-checked.
         //
-        // `LLMCleaner` is the intended primary pass (`DisfluencyCleanup.apply`).
-        // Measured on this machine it costs multiple seconds per body, which
-        // blows the 800 ms end-of-speech budget, so it is not awaited here.
-        // The shipping path is the pattern-based fallback: hesitation-sound
-        // shape plus adjacent repeats. Output is used only when it is a pure
-        // word deletion of the original; anything else is discarded.
+        // The LLM pass is warmed at launch but remains off the live path until
+        // warmed latency is proven safe. The deterministic rules are bounded
+        // and deletion-only.
         //
         // This is the one place the body legitimately differs from the raw
         // transcript slice, and CLAUDE.md permits exactly this: "Removing filler

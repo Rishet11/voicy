@@ -105,6 +105,7 @@ public struct LLMCleaner: Sendable {
 /// deletion-only gate on whichever result we got. Pipeline calls this and
 /// nothing else for the disfluency pass.
 public enum DisfluencyCleanup {
+    private static let timeout: Duration = .milliseconds(250)
     public enum Source: String, Sendable {
         case llm
         case rules
@@ -126,7 +127,7 @@ public enum DisfluencyCleanup {
     /// already know how to drop. Both outputs are gated.
     public static func apply(_ text: String) async -> Result {
         let t0 = Date()
-        let llm = await LLMCleaner().clean(text)
+        let llm = await boundedLLM(text)
         let seed = llm ?? text
         let rules = TranscriptCleaner.rulesOnly(seed)
         let afterRules = TranscriptCleaner.isDeletionOnly(original: seed, cleaned: rules)
@@ -140,6 +141,27 @@ public enum DisfluencyCleanup {
         }()
         return Result(text: final, source: source,
                       elapsedMs: Date().timeIntervalSince(t0) * 1000)
+    }
+
+    /// Return control to dictation within the fixed latency budget. The model
+    /// task is cancelled on timeout, but the continuation is resumed by the
+    /// timer even if FoundationModels does not honour cancellation promptly.
+    private static func boundedLLM(_ text: String) async -> String? {
+        await withCheckedContinuation { continuation in
+            let once = ResumeOnce<String?>()
+            let modelTask = Task {
+                await LLMCleaner().clean(text)
+            }
+            Task {
+                let value = await modelTask.value
+                once.resume(continuation, value)
+            }
+            Task {
+                try? await Task.sleep(for: timeout)
+                modelTask.cancel()
+                once.resume(continuation, nil)
+            }
+        }
     }
 }
 
