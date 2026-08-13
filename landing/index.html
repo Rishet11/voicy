@@ -36,7 +36,7 @@
           <a class="btn btn-primary" href="https://github.com/Rishet11/voicy">Build from source</a>
           <a class="btn btn-ghost" href="#slice">See how</a>
         </div>
-        <p class="fineprint">macOS. No release yet. Build it from source. It is still early.</p>
+        <p class="fineprint">macOS. No release yet. Build it from source.</p>
         <p class="privacy-line">Your audio stays on this Mac. Voicy makes zero network calls. Message content is never stored or logged.</p>
       </div>
 
@@ -56,9 +56,9 @@
     <div class="wrap">
       <p class="eyebrow eyebrow-inv">how the sentence is cut</p>
       <h2 id="slice-h">What happens to your sentence</h2>
-      <p class="lede lede-inv">Voicy cuts the recipient and message body from what you said. The body stays exactly as spoken.</p>
+      <p class="lede lede-inv">Voicy cuts the recipient and message body from what you said. Cleanup only removes disfluencies.</p>
 
-      <div class="tape" role="img" aria-label="Transcript of the spoken sentence, message Pulkit that I'll be late leaving now. The word 'message' is marked as the verb, 'Pulkit' as the recipient, 'that' as the connector, and 'I'll be late, leaving now' as the message body sliced verbatim.">
+      <div class="tape" role="img" aria-label="Transcript of the spoken sentence, message Pulkit that I'll be late leaving now. The word 'message' is marked as the verb, 'Pulkit' as the recipient, 'that' as the connector, and 'I'll be late, leaving now' as the message body sliced from the transcript without generation.">
         <div class="tape-line">
           <span class="tok tok-verb">message</span>
           <span class="tok tok-name">Pulkit</span>
@@ -69,7 +69,7 @@
           <span><i class="sw sw-verb"></i>verb, dropped</span>
           <span><i class="sw sw-name"></i>recipient, matched against your contacts</span>
           <span><i class="sw sw-conn"></i>connector, dropped</span>
-          <span><i class="sw sw-body"></i>body, sliced by character offset, sent as-is</span>
+          <span><i class="sw sw-body"></i>body, sliced by character offset, never regenerated</span>
         </div>
       </div>
 
@@ -143,7 +143,7 @@
         <p>Two Rahuls means a question, not a guess.</p>
       </article>
       <article class="rule">
-        <h3>Call a WhatsApp API</h3>
+        <h3>Use a WhatsApp deep link</h3>
         <p>Voicy opens WhatsApp with a <code>whatsapp://send</code> link. It makes no API calls.</p>
       </article>
     </div>
@@ -164,7 +164,7 @@
         </ul>
       </div>
       <div class="perms">
-        <p class="perm-note">Voicy asks for Microphone and Contacts. Input Monitoring and Accessibility stay off.</p>
+        <p class="perm-note">Voicy asks for Microphone and Contacts. Input Monitoring and Accessibility are optional and off by default.</p>
       </div>
     </div>
   </section>
@@ -174,9 +174,9 @@
     <div class="wrap">
       <p class="eyebrow eyebrow-warn">half done, not wired in</p>
       <h2 id="vn-h">Received voice notes still need language support</h2>
-      <p>Voicy can decode real WhatsApp voice-note files. It does not transcribe them yet. The files we sampled were Hindi and Punjabi; the English model produced confident nonsense.</p>
+        <p>Voicy can decode real WhatsApp voice-note files. Transcription is not ready: the sampled files were Hindi and Punjabi, while the current recognizer runs <code>en_US</code>.</p>
       <blockquote class="quote quote-inline">
-        <p>&ldquo;WhatsApp's voice note transcription on desktop is either missing entirely or very inaccurate for me.&rdquo;</p>
+        <p>&ldquo;WhatsApp's voice note transcription on desktop is either missing entirely or very inaccurate for me. It skips words, struggles with accents, and sometimes just isn't available at all, so I built a local alternative.&rdquo;</p>
         <cite>jpxoi, <a href="https://www.threads.com/@jpxoi/post/DUEcd-7DDGL/whats-app-voice-note-transcription-on-desktop-is-either-missing-entirely-or">Threads</a></cite>
       </blockquote>
     </div>
@@ -198,7 +198,7 @@
         </details>
         <details>
           <summary>What is not finished?<span class="chev" aria-hidden="true"></span></summary>
-          <div class="faq-a"><p>Auto-send, the ambiguous-contact picker, the edit shortcut and the hold-to-talk key have code and tests but have never been run end to end by a human. Voice notes decode but are not wired in. The <a href="pitch.html#unproven">pitch page</a> lists all of it.</p></div>
+          <div class="faq-a"><p>Auto-send is untested end to end, and live sends are currently restricted to one allowlisted number. Voice notes decode but are not wired into the UI. The <a href="pitch.html#unproven">pitch page</a> lists the limits.</p></div>
         </details>
       </div>
     </div>
@@ -215,7 +215,7 @@
 
 <footer class="site-footer">
   <div class="wrap footer-inner">
-    <p>Two people built this at a hackathon.</p>
+    <p>Open source, built for macOS.</p>
     <a href="https://github.com/Rishet11/voicy">github.com/Rishet11/voicy</a>
   </div>
 </footer>

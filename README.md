@@ -2,49 +2,27 @@
 
 # Voicy
 
-### Hold a key. Say it. It's sent.
+### Hold a key. Say it. Review and send.
 
-**The fastest way to send a WhatsApp message on a Mac — without touching WhatsApp.**
+**Send a WhatsApp message on a Mac without touching WhatsApp.**
 
-*Fully on-device · Zero ban risk · Never rewrites your words*
+*Fully on-device · No WhatsApp API · Never rewrites your words*
 
 </div>
 
 ---
 
-## The problem nobody talks about
+## The problem
 
-You're deep in a file. Focused. In flow.
-
-Then you remember: *I need to tell Pulkit I'll be late.*
-
-So you leave. You `Cmd+Tab` to WhatsApp. You scroll a list of 200 chats looking for one name. You type a sentence you could have said out loud in two seconds. You get pulled into three unread messages you didn't come for. Nine minutes later you come back to your editor and stare at the screen trying to remember what you were doing.
-
-**You didn't lose nine minutes. You lost your flow, and that costs far more.**
-
-And here's the part that stings: the average person has **47 unread texts** sitting in their phone right now. Not because they don't care. Because starting a reply is heavier than it should be. r/ADHD threads about this pull thousands of upvotes:
-
-> *"It's not that I don't want to respond. My brain just freezes. The task of responding feels insurmountable even though I know logically it takes 30 seconds."*
-
-Thirty seconds of typing. Blocked by the friction of getting there.
-
-### So why hasn't a voice tool fixed this?
-
-Because every dictation app on the Mac solves the wrong half of the problem.
-
-SuperWhisper, Wispr Flow, macOS dictation — brilliant at turning speech into text. But they all stop at the same place: **they dump words into whatever box you're already looking at.**
-
-None of them know *who* you're talking to.
-
-You still have to switch apps. Still have to find the chat. Still have to lose your place. The typing got faster. **The interruption didn't go away.**
+You remember: *I need to tell Pulkit I'll be late.* Dictation can turn that into text, but it does not choose the WhatsApp chat. You still switch apps and find the recipient.
 
 ---
 
 ## The solution
 
-**Voicy is the first Mac voice tool that knows who you mean.**
+**Voicy is a Mac voice tool that resolves who you mean.**
 
-You never open WhatsApp. You never find the chat. You never leave what you're doing.
+It opens the matching WhatsApp chat with the message ready to review.
 
 ```
                      Hold Ctrl+Space
@@ -65,56 +43,38 @@ You never open WhatsApp. You never find the chat. You never leave what you're do
     └───────────────────────────────────────────┘
                             │
                             ▼
-                   Delivered. You never left.
+                   Ready to send. You confirm.
 ```
 
-One key. One sentence. One glance to confirm. Done.
+Hold one key, speak one sentence, then confirm.
 
 ---
 
-## Why this is genuinely hard (and why nobody did it)
+## Why it is hard
 
 Turning *"message Pulkit that I'll be late"* into a delivered WhatsApp message means solving four problems that each look easy and aren't.
 
 ### 1. Hearing a name correctly
 
-Every speech engine on earth mangles Indian names. "Pulkit" becomes "Paul Kit". "Aarav" becomes "our". A dictation app can shrug this off, you'll fix the typo. **A messaging app cannot.** Get the name wrong and the message goes to the wrong person, or nowhere.
+Apple's recognizer can mangle Indian names. In our clips, "Pulkit" became "Polkit", "Polka", or "Paul Kit". "Aarav" became "our ab". A messaging app cannot silently accept a wrong recipient.
 
 **What Voicy does:** it accepts that the recognizer will mangle the name and recovers afterwards. The mangled span is matched against your contacts orthographically and phonetically, so "Paul Kit" still resolves to Pulkit.
 
-We tried biasing the recognizer instead, with Apple's `customizedLanguageModel` on both the legacy `SFSpeechRecognizer` path and the macOS 26 `DictationTranscriber` path. It does nothing. Pointing the API at a model file that does not exist produced no error and byte-identical transcripts on both engines, so the property is being ignored. Recognizer-side biasing is not what makes this work; the matcher is.
+Recognizer hints and custom language models did not change the measured transcripts. Voicy matches the name after recognition instead.
 
 ### 2. Knowing who you mean
 
-You say "Pulkit". Your phone says "Stone". Nobody stores contacts the way they speak about them.
-
-**What Voicy does:** fuzzy matching, phonetic matching, and a memory that learns. Correct it once and it never gets it wrong again. Two people named Rahul? It asks, instead of guessing — because a confidently wrong send destroys trust permanently, and there's no undo on WhatsApp.
+You say "Pulkit". The recognizer may return something else. Voicy uses fuzzy and phonetic matching, learns corrected aliases, and asks when contacts are ambiguous.
 
 ### 3. Not butchering what you said
 
-The loudest complaint about every AI dictation tool:
+The parser returns *character positions*, not regenerated text. The message body is sliced from the transcript. Disfluency cleanup runs on-device and does not use a hardcoded filler-word list.
 
-> *"I didn't like that in Wispr Flow they were changing my inputs."*
-
-They pipe your words through a language model, and it silently "improves" your grammar. Your voice stops sounding like you.
-
-**What Voicy does:** the parser returns *character positions*, not text. Your message body is sliced byte-for-byte out of what you actually said. Removing "um" is allowed. Rewriting a sentence is architecturally impossible.
-
-It also means Hinglish just works. *"message Pulkit ki main kal aaunga"* — byte offsets don't care what language you're speaking.
+The body remains the user's transcript, including Hinglish.
 
 ### 4. Sending it without getting banned
 
-This is where most people building this quietly fail.
-
-Every WhatsApp automation library — `whatsapp-web.js`, `Baileys` — reimplements WhatsApp's protocol. WhatsApp detects that and **permanently bans accounts**, sometimes after 10 messages, with no human appeal. Their own READMEs warn you.
-
-**What Voicy does:** it never speaks to WhatsApp's servers. Not once.
-
-It hands macOS a `whatsapp://send` link — **WhatsApp's own documented feature**, the one they published for websites to use — which opens the real app with your message already typed. Then one keystroke sends it.
-
-There is nothing to detect, because nothing unusual happened. A real user, in the real app, pressing a real key.
-
-**Zero ban risk isn't a promise. It's architecture.**
+Voicy does not use a WhatsApp API or speak to WhatsApp's servers. It opens the real app with a `whatsapp://send` link, then the user confirms in WhatsApp. Live sends are currently restricted to one allowlisted number.
 
 ---
 
@@ -126,14 +86,11 @@ There is nothing to detect, because nothing unusual happened. A real user, in th
 | Learns your names for people | ✅ correct once, remembers forever | ❌ |
 | Your voice leaves your Mac | ❌ never | ⚠️ often cloud |
 | Rewrites your words | ❌ impossible by design | ⚠️ commonly |
-| Risk to your WhatsApp account | ❌ none | — |
 | Works on 2 ordinary permissions | ✅ | ❌ Accessibility demanded up front |
 
 ---
 
 ## Privacy, stated plainly
-
-Most apps say "we care about your privacy". Here is what Voicy actually does:
 
 - **Your voice never leaves your Mac.** Transcription runs on-device with Apple's Speech framework. There is no server. There is no API key. Airplane mode changes nothing.
 - **Your messages are never stored.** Not in a log, not in a file, not anywhere. The only thing saved is a name mapping: *"Pulkit" → this contact.* Never message content.
@@ -153,7 +110,7 @@ Most tools in this category demand Accessibility access before you've seen them 
 | 🎤 Microphone | To hear you |
 | 👤 Contacts | To turn "Pulkit" into a phone number |
 
-That's it. Voicy is fully usable — hotkey, transcription, contact matching, message pre-filled and ready.
+Voicy can record, transcribe, match a contact, and pre-fill a message.
 
 **Two optional upgrades, one toggle each, in Settings:**
 
@@ -162,21 +119,15 @@ That's it. Voicy is fully usable — hotkey, transcription, contact matching, me
 | Hold a key to talk | Push-to-talk on a bare modifier key |
 | Send without pressing Enter | Voicy presses Return for you |
 
-Each toggle tells you exactly which macOS permission it needs and what you get. You opt in *after* you trust it — not before you've tried it.
+Each toggle is optional and tells you which macOS permission it needs.
 
 ---
 
-## The feature WhatsApp won't ship
+## Incoming voice notes
 
-On **21 November 2024**, WhatsApp launched voice-message transcription. Free, on-device, brilliant.
+Voicy can decode real WhatsApp voice-note files locally. Transcription is not ready: the sampled notes were mostly Hindi and Punjabi, while the current recognizer runs `en_US`. This feature is not wired into the UI.
 
-**On phones only.**
-
-Not the Mac app. Not WhatsApp Web. Over a year later, if you're working on a laptop and someone sends you a four-minute voice note, you still have to stop and listen to all four minutes.
-
-Voicy reads voice notes already sitting on your own disk, decoding them locally. Your files, your machine, WhatsApp's servers never touched.
-
-> ⚠️ **Status: in development, and not usable yet.** Decoding is verified on real Ogg-Opus voice notes from the WhatsApp container. Transcription is the blocker: the recognizer runs `en_US`, and the real notes we sampled were mostly Hindi and Punjabi, which come out as phonetic nonsense. It needs locale selection or language detection before it is worth shipping, and it is not wired into the UI. Everything above this section works today.
+> **Status:** decoding works on real Ogg-Opus files. Language support is the blocker.
 
 ---
 
@@ -229,19 +180,20 @@ Prints the real state of every permission, whether WhatsApp was found, and which
 
 Software READMEs usually oversell. Here's the real state.
 
-**Working, tested on real hardware:**
-- Push-to-talk, on-device transcription
-- Contact resolution with fuzzy and phonetic matching, which recovers names the recognizer mangles
+**Working and measured:**
+- Streaming partials update the recording pill during speech
+- On-device transcription, with 35 partials on a long utterance and 32 during speech
+- Recipient matching at 90.9% top-1 accuracy across a 72-case evaluation, with 100% correct refusal and 0.0% wrong-person sends
+- Contact resolution with fuzzy and phonetic matching, plus learned aliases
 - Confirm card that never steals focus from your current app
-- Message pre-filled in WhatsApp via the official deep link
-- Learned aliases persisting across restarts
+- Message pre-filled in WhatsApp via a deep link
+- Disfluency cleanup using Apple's on-device FoundationModels, with no hardcoded filler list
 - Self-test reporting real permission and environment state
 
 **In progress:**
-- Auto-send (built and permission-gated, not yet exercised end to end)
-- Latency tuning — currently ~1.1s to transcribe, targeting under 800ms
+- Latency targets met in the measured path: 317.7 ms end-of-speech tail against an 800 ms budget, and 38.7 ms prewarmed mic start against a 100 ms budget
 - Incoming voice-note transcription (decode verified, transcription is English-only and unusable on non-English notes, not wired to the UI)
-- LLM-assisted cleanup for filler words and unusual phrasings
+- Auto-send remains permission-gated and untested end to end; live sends are restricted to one allowlisted number
 
 **Not there yet:**
 - Notarized signed release build
