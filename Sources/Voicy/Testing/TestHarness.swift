@@ -25,6 +25,8 @@ import Foundation
 //   --real-contacts             use the address book instead of the fixtures
 //   --repeat <n>                run the clip n times (latency measurement)
 //   --quiet                     one summary line per clip, no stage table
+//   --locale <id>               transcribe with this locale (default: the
+//                               shipped resolution, no env vars involved)
 
 /// Sync entry for main.swift, mirroring `runSelfTestIfRequested()`. Returns
 /// immediately unless a test flag is present; otherwise runs and exits.
@@ -176,17 +178,33 @@ struct TestHarness {
         }
     }
 
+    /// Locale for this run: `--locale <id>` wins, then the same resolution as
+    /// production (the persisted `voicy.transcriberLocale` setting, then the
+    /// system locale, then en_US). The harness flag is a diagnostic seam only;
+    /// the shipped app resolves its locale itself, with no flags or env vars.
+    private func engineLocale() -> Locale {
+        if let id = value(for: "--locale"), !id.isEmpty {
+            return Locale(identifier: id)
+        }
+        return TranscriberLocale.requestedLocale()
+    }
+
     /// Builds the transcriber and pays its first-call cost up front so the
     /// measured numbers reflect a warm engine, the way the shipped app behaves
     /// once `TranscriberWarmup` has run.
     private func warmEngine() async -> Transcriber {
-        let engine = TranscriberFactory.make()
+        let requested = engineLocale()
+        let effective = await TranscriberLocale.availableLocale(for: requested)
+        let engine = TranscriberFactory.make(locale: requested)
         let t0 = Date()
         // 300 ms of silence: enough to force model load, short enough to be free.
         let silence = [Float](repeating: 0, count: 4_800)
         _ = try? await engine.transcribe(pcm: silence, hints: [])
         let ms = Date().timeIntervalSince(t0) * 1000
-        print("engine: \(String(describing: type(of: engine))) warmed in \(fmt(ms)) ms")
+        print("engine: \(String(describing: type(of: engine))) warmed in \(fmt(ms)) ms "
+              + "(locale \(effective.locale.identifier)"
+              + (effective.fellBack ? ", fell back from \(requested.identifier)" : "")
+              + ")")
         return engine
     }
 
@@ -592,7 +610,7 @@ struct TestHarness {
 
         let recorder = PartialRecorder()
         let start = Date()
-        let session = LiveTranscriptionSession(locale: Locale(identifier: "en_US"), hints: hints) { text in
+        let session = LiveTranscriptionSession(locale: engineLocale(), hints: hints) { text in
             recorder.record(text: text, at: Date().timeIntervalSince(start) * 1000)
         }
         do {
@@ -644,7 +662,7 @@ struct TestHarness {
         }
 
         // Same clip, one shot, through the shipped engine.
-        let oneShot = TranscriberFactory.make()
+        let oneShot = TranscriberFactory.make(locale: engineLocale())
         let oneShotText = (try? await oneShot.transcribe(pcm: pcm, hints: hints)) ?? ""
         print("  one-shot       \"\(display(oneShotText))\"")
         if !loosely(final.best, equals: oneShotText) {
@@ -942,6 +960,10 @@ struct TestHarness {
         print("send path:     \(sendPath.passed) passed, \(sendPath.failed) failed")
         failed += sendPath.failed
 
+        let speechLocale = runSpeechLocaleTests()
+        print("speech locale: \(speechLocale.passed) passed, \(speechLocale.failed) failed")
+        failed += speechLocale.failed
+
         return failed
     }
 
@@ -954,7 +976,7 @@ struct TestHarness {
         // Cold engine construction + first transcription, the number the user
         // actually feels on the first utterance after launch.
         let coldStart = Date()
-        let cold = TranscriberFactory.make()
+        let cold = TranscriberFactory.make(locale: engineLocale())
         let constructMs = Date().timeIntervalSince(coldStart) * 1000
         let silence = [Float](repeating: 0, count: 16_000)
         let firstStart = Date()

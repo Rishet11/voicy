@@ -356,3 +356,67 @@ func runSendPathTests() async -> (passed: Int, failed: Int) {
 
     return t.result
 }
+
+// MARK: - Speech locale
+
+/// Pure-logic checks for `TranscriberLocale`: precedence of the request
+/// (persisted setting, then system locale, then `en_US`), the fallback chain
+/// against an installed inventory, and the UserDefaults round-trip. No audio,
+/// no Speech framework calls.
+func runSpeechLocaleTests() -> (passed: Int, failed: Int) {
+    var t = TestRun("speech-locale")
+
+    // --- requestedLocale precedence: persisted beats system, system beats default.
+    t.equal(TranscriberLocale.requestedLocale(persisted: "en_GB",
+                                              system: Locale(identifier: "hi_IN")).identifier,
+            "en_GB", "persisted setting beats the system locale")
+    t.equal(TranscriberLocale.requestedLocale(persisted: "",
+                                              system: Locale(identifier: "hi_IN")).identifier,
+            "hi_IN", "empty persisted value falls through to the system locale")
+    t.equal(TranscriberLocale.requestedLocale(persisted: nil,
+                                              system: Locale(identifier: "en_IN")).identifier,
+            "en_IN", "no persisted setting -> system locale")
+    t.equal(TranscriberLocale.requestedLocale(persisted: nil,
+                                              system: Locale(identifier: "en_AU@rg=inzzzz")).identifier,
+            "en_AU", "system locale attribute suffix is stripped")
+    t.equal(TranscriberLocale.requestedLocale(persisted: nil,
+                                              system: Locale(identifier: "")).identifier,
+            "en_US", "no persisted setting, empty system locale -> en_US")
+
+    // --- Fallback chain against a machine's installed inventory.
+    let installed = [Locale(identifier: "en_US"), Locale(identifier: "en_IN"),
+                     Locale(identifier: "hi_IN")]
+    var r = TranscriberLocale.resolve(requested: Locale(identifier: "en_IN"), installed: installed)
+    t.check(!r.fellBack && r.locale.identifier == "en_IN", "en_IN installed -> exact match, no fallback")
+    r = TranscriberLocale.resolve(requested: Locale(identifier: "en_GB"), installed: installed)
+    t.check(r.fellBack && r.locale.identifier == "en_US", "en_GB missing -> same-language fallback")
+    r = TranscriberLocale.resolve(requested: Locale(identifier: "pa_IN"), installed: installed)
+    t.check(r.fellBack && r.locale.identifier == "en_US", "pa_IN missing -> no language match -> en_US")
+    r = TranscriberLocale.resolve(requested: Locale(identifier: "en-us"), installed: installed)
+    t.check(!r.fellBack && r.locale.identifier == "en_US", "hyphen spelling matches installed en_US")
+    r = TranscriberLocale.resolve(requested: Locale(identifier: "en_US@rg=inzzzz"), installed: installed)
+    t.check(!r.fellBack && r.locale.identifier == "en_US", "attribute suffix matches installed en_US")
+    let noEnglish = [Locale(identifier: "fr_FR"), Locale(identifier: "de_DE")]
+    r = TranscriberLocale.resolve(requested: Locale(identifier: "en_IN"), installed: noEnglish)
+    t.check(r.fellBack && r.locale.identifier == "de_DE", "en_US also missing -> first installed by id")
+    r = TranscriberLocale.resolve(requested: Locale(identifier: "en_IN"), installed: [])
+    t.check(!r.fellBack && r.locale.identifier == "en_IN",
+            "empty inventory -> keep the request; the engine surfaces its own error")
+
+    // --- UserDefaults round-trip, restoring whatever was there before.
+    let key = TranscriberLocale.persistedSettingKey
+    let prior = UserDefaults.standard.string(forKey: key)
+    UserDefaults.standard.removeObject(forKey: key)
+    t.check(TranscriberLocale.persistedIdentifier() == nil, "persisted setting starts unset")
+    TranscriberLocale.setPersisted("en_IN")
+    t.equal(TranscriberLocale.persistedIdentifier(), "en_IN", "setPersisted stores the identifier")
+    t.equal(TranscriberLocale.requestedLocale(system: Locale(identifier: "en_US")).identifier, "en_IN",
+            "factory default reads the persisted setting")
+    TranscriberLocale.clearPersisted()
+    t.check(TranscriberLocale.persistedIdentifier() == nil, "clearPersisted removes the identifier")
+    if let prior {
+        UserDefaults.standard.set(prior, forKey: key)
+    }
+
+    return t.result
+}
