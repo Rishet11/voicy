@@ -257,3 +257,195 @@ app.", "Adaptability", "What's inside", "Integrations", "What people say".
    not build, what is unproven).
 10. Fix `overflow-x: hidden` and `overflow-wrap: anywhere` by fixing layout.
 11. Keep every accessibility feature listed in §E.
+
+---
+
+# H. WORD BUDGET
+
+Added after the human's verdict on the rebuilt page: **"the website is tooo
+wordayyy!!!"** and "completely change the design". The visual direction is being
+decided elsewhere. This section is the part that survives any direction, because
+no layout saves 1,491 words of body copy.
+
+## H1. Current count
+
+Counted from the committed `index.html` (tags stripped, entities decoded).
+
+| Section | Words | Budget at ~1/3 |
+|---|---:|---:|
+| head + nav | 25 | 8 |
+| Hero | 122 | 41 |
+| The slice (mechanism) | 137 | 46 |
+| Problem | 117 | 39 |
+| Names | 235 | 78 |
+| Two rules | 188 | 63 |
+| Privacy + permissions | 223 | 74 |
+| Voice notes | 136 | 45 |
+| FAQ + closer + footer | 308 | 103 |
+| **index.html total** | **1,491** | **497** |
+| pitch.html total | 1,689 | leave long, see H4 |
+
+For calibration: Screen Studio's entire homepage above the fold is under 30
+words. Linear's is 20. A landing page at 1,491 words is an essay with buttons.
+
+## H2. The rule to apply
+
+Every section gets **one sentence of claim and at most one sentence of proof.**
+If a third sentence exists it is either moving to the pitch page, moving into a
+diagram label, or being deleted. Reasoning belongs on `pitch.html`. The landing
+page states, it does not argue.
+
+## H3. Section by section, at roughly a third
+
+Written as actual replacement copy, not instructions, so the implementing worker
+can paste it.
+
+**Hero — 122 → 38**
+> # Say who, say what. It's already typed.
+> Hold Ctrl+Space, say "message Pulkit that I'll be late". WhatsApp opens on
+> Pulkit's chat with those exact words in the box.
+>
+> [Build from source] [See how]
+>
+> macOS. No release yet, you build it. Nobody outside the authors has used it.
+
+Cut: the whole "you never left your editor" clause (the reader infers it), "and
+nothing rewrote your sentence" (that is the next section's job), and three of
+the four fineprint sentences.
+
+**The slice — 137 → 42**
+> ## What happens to your sentence
+> Most dictation tools regenerate your text. Voicy cuts two spans out of it.
+>
+> [the diagram, with its four legend labels]
+>
+> The body is characters, copied by offset. There is no rewriting step to fail,
+> so Hinglish survives too.
+
+Cut: the entire filler-word paragraph (52 words). It becomes one FAQ line, or a
+tooltip. The diagram is the argument; prose repeating the diagram is the single
+biggest waste on the page.
+
+**Problem — 117 → 34**
+> ## The other half
+> Dictation is solved. None of them know who you are talking to, so you still
+> Cmd+Tab and scroll past two hundred chats. The typing was never the slow part.
+>
+> [quote, unchanged, 14 words]
+
+Cut: the whole "second half is trust" paragraph. It duplicates the slice section.
+
+**Names — 235 → 72**
+> ## Indian names break every speech engine
+> What Apple's recognizer returns for "Pulkit": Polkit, Polka, Paul Kit, Palka.
+> Differently on consecutive runs.
+>
+> We tried the three documented fixes. Contextual strings: byte-identical
+> output. The en_IN locale: byte-identical, 1.5x slower. A custom language
+> model: byte-identical, 1576 ms.
+>
+> So we fix it after recognition. Correct a name once and it resolves forever.
+
+Cut: the table becomes one line, the three `<li>` blocks become one sentence
+each, and the 60-word verdict paragraph becomes one sentence. This section keeps
+the most words of any on the page because it is the only genuinely surprising
+thing here, but it still loses 70%.
+
+**Two rules — 188 → 60**
+> ## Three things it will not do
+> **Rewrite you.** The body is a slice, not a generation.
+> **Guess a recipient.** Two Rahuls and it asks. It never picks the likelier one.
+> **Touch a WhatsApp API.** A `whatsapp://send` link, the same one behind every
+> "chat on WhatsApp" button on the web. Nothing to ban.
+
+Three headings and one line each. The current version explains why each rule
+exists; the pitch page is where "why" lives.
+
+**Privacy and permissions — 223 → 66**
+> ## What leaves your Mac
+> ### Nothing.
+> Voice: transcribed on-device. Messages: never stored or logged. Contacts: read
+> into memory, never uploaded. Microphone: open only while you hold the key.
+> Kill switch: a blocklist that refuses everything if it cannot be read.
+>
+> Asks for Microphone and Contacts. Input Monitoring and Accessibility are
+> optional and off.
+
+Five one-line facts instead of five sentences, and the permissions table
+collapses to one line. **Do not cut this section below this, see H5.**
+
+**Voice notes — 136 → 40**
+> ## Voice notes: half done
+> Decoding real WhatsApp voice notes works, proven on real files. Transcribing
+> them does not: the real ones we sampled are Hindi and Punjabi, and the English
+> model turns those into confident nonsense. So it is not wired in.
+
+Cut: the WhatsApp-shipped-in-November-2024 history (28 words of context the
+reader does not need to evaluate the claim) and the callout box.
+
+**FAQ — 308 → 95**
+Keep three questions, not six. Ban, audio, and what-is-not-finished. Offline,
+requirements and speed move to a one-line spec strip: `macOS 26 · Apple Silicon
+· WhatsApp Desktop · works offline except delivery`. Answers get two sentences
+each, hard limit.
+
+**Closer and footer — keep, they are already 30 words.**
+
+**New total: about 450 words**, roughly a third, with the pitch page absorbing
+everything cut that was worth keeping.
+
+## H4. pitch.html stays long, on purpose
+
+1,689 words, and that is correct. It is a separate page a judge opts into. The
+landing page is the claim, the pitch page is the evidence. The failure mode is
+not "the pitch page is long", it is "the landing page tries to be the pitch
+page", which is exactly what happened. Do not apply the word budget to
+`pitch.html`.
+
+## H5. Load-bearing vs decoration
+
+The redesign can delete anything in the second list. It must not delete anything
+in the first, in any wording, because these are the claims the whole trust
+posture rests on and they are each verifiable in the source.
+
+**Load-bearing. Must survive in some form.**
+
+| Claim | Where it is true in the repo |
+|---|---|
+| On-device transcription, nothing uploaded, no API key | Apple Speech framework, no network code in `Speech/` |
+| Pull to mic, never always-on | mic opens on key-down, closes on key-up, `Hotkey/` + `Audio/MicrophoneRecorder` |
+| Visible kill switch, fails closed | `Send/Blocklist.swift`: corrupt file refuses every auto-send |
+| Export and erase | alias store is plain JSON in Application Support, deletable |
+| Message content is never stored or logged | fixed this session; logs lengths, phone numbers masked to last 4 |
+| Never rewrites your words | body sliced by character offset, `Intent/`; LLM cleaner deliberately unwired |
+| Never guesses a recipient | ambiguity returns `.ambiguous`, asserted by tests |
+| No WhatsApp API, deep link only | `Send/WhatsAppDeepLink.swift` |
+| Contacts never uploaded | `Contacts/ContactIndex` reads into memory only |
+| Early software, no release, unused by strangers | true, and it is the line that makes every other line credible |
+
+**Decoration. Cut freely.**
+
+- Latency numbers (31.5 ms, 149 ms). Real, but they belong on the pitch page next
+  to their method. Nobody chooses this tool on 31.5 ms.
+- Test counts (128 checks, 22 clips). Already flagged in §B3.
+- The andersonkl and Shrott quotes. One at most, zero is fine.
+- The November 2024 WhatsApp transcription history.
+- The filler-word deletion-check explanation.
+- The permissions table. One line of prose replaces it.
+- "Built with zero third-party dependencies."
+- The phone number, avatar and keyboard hints inside the confirm card mock.
+
+**Never allowed back, at any word count:** contact-name biasing, in any wording.
+Measured to do nothing (§B1).
+
+## H6. State of the tree
+
+`index.html`, `styles.css` and `pitch.html` are committed and pushed at
+`0c60fbf`, complete and rendering. Nothing is half-finished on disk. The
+browser verification at 1440 / 1024 / 768 / 390 was **not completed**: the AO
+browser panel is about 320 CSS pixels wide, so a 1440px viewport can only be
+inspected at roughly 22% scale, and `ao browser screenshot` started returning
+`INTERNAL_ERROR` partway through. One dark-mode screenshot at 1440 was taken and
+read; the hero and the slice section render correctly. **Treat responsive and
+light-mode rendering as unverified** and hand that to whoever implements the new
+design.
