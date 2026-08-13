@@ -20,9 +20,16 @@ esac
 
 APP_NAME="Voicy"
 ROOT="$(pwd)"
-APP_BUNDLE="$ROOT/dist/$APP_NAME.app"
+DIST_DIR="$ROOT/dist"
+APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
+STAGING_ROOT="${TMPDIR:-/private/tmp}/voicy-app-staging.$$"
+STAGED_BUNDLE="$STAGING_ROOT/$APP_NAME.app"
+STAGED_BIN_DIR="$STAGED_BUNDLE/Contents/MacOS"
+STAGED_RES_DIR="$STAGED_BUNDLE/Contents/Resources"
 BIN_DIR="$APP_BUNDLE/Contents/MacOS"
 RES_DIR="$APP_BUNDLE/Contents/Resources"
+cleanup_staging() { rm -rf "$STAGING_ROOT"; }
+trap cleanup_staging EXIT
 
 # --- Preflight. Fail here, with a fix, rather than mid-build with a stack trace.
 fail() { echo "ERROR: $1" >&2; shift; for line in "$@"; do echo "       $line" >&2; done; exit 1; }
@@ -82,16 +89,17 @@ plutil -lint "$ROOT/Info.plist" >/dev/null || fail \
   "Inspect it with: plutil -lint Info.plist"
 
 echo "==> Assembling $APP_BUNDLE"
-rm -rf "$APP_BUNDLE"
-mkdir -p "$BIN_DIR" "$RES_DIR"
+rm -rf "$DIST_DIR" "$STAGING_ROOT"
+mkdir -p "$STAGED_BIN_DIR" "$STAGED_RES_DIR"
 
-cp "$BIN" "$BIN_DIR/$APP_NAME"
-cp "$ROOT/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
-printf 'APPL????' > "$APP_BUNDLE/Contents/PkgInfo"
+cp "$BIN" "$STAGED_BIN_DIR/$APP_NAME"
+cp "$ROOT/Info.plist" "$STAGED_BUNDLE/Contents/Info.plist"
+printf 'APPL????' > "$STAGED_BUNDLE/Contents/PkgInfo"
 
-# The dist dir may carry environment provenance/Finder xattrs that make
-# `codesign --strict --deep` fail; strip them before signing.
-xattr -cr "$APP_BUNDLE" 2>/dev/null || true
+# The dist dir and copied files may carry environment provenance/Finder xattrs
+# that make codesign reject the bundle. The whole dist tree was recreated
+# above, and the recursive clear is deliberately fatal if it cannot complete.
+xattr -cr "$STAGED_BUNDLE"
 
 # Sign with a STABLE identity. Ad-hoc signing (--sign -) mints a new code
 # identity on every build, so macOS treats each rebuild as a different app and
@@ -103,15 +111,29 @@ SIGN_ID="${VOICY_SIGN_ID:-$(security find-identity -v -p codesigning 2>/dev/null
   | awk -F'"' '/Apple Development|Developer ID Application/ {print $2; exit}')}"
 if [ -n "$SIGN_ID" ]; then
   echo "==> Codesigning with stable identity: $SIGN_ID"
-  codesign --force --deep --sign "$SIGN_ID" "$APP_BUNDLE"
+  codesign --force --deep --sign "$SIGN_ID" "$STAGED_BUNDLE"
 else
   echo "==> WARNING: no signing identity found; falling back to ad-hoc."
   echo "    Permissions will reset on every rebuild."
-  codesign --force --deep --sign - "$APP_BUNDLE"
+  codesign --force --deep --sign - "$STAGED_BUNDLE"
 fi
 
-codesign --verify --strict "$APP_BUNDLE" || fail \
+# codesign can itself leave Finder/provenance attributes on the bundle on
+# managed macOS volumes. Clear those signing-irrelevant attributes before the
+# strict verification step as well.
+xattr -cr "$STAGED_BUNDLE"
+
+codesign --verify --strict "$STAGED_BUNDLE" || fail \
   "the assembled bundle failed signature verification." \
+  "Remove dist/ and rebuild: rm -rf dist && ./build.sh"
+
+# Move only after signing. Desktop-managed dist directories can carry Finder
+# metadata that makes codesign reject an otherwise valid bundle.
+mkdir -p "$DIST_DIR"
+mv "$STAGED_BUNDLE" "$APP_BUNDLE"
+xattr -cr "$APP_BUNDLE"
+codesign --verify --strict "$APP_BUNDLE" || fail \
+  "the final bundle failed signature verification after moving into dist." \
   "Remove dist/ and rebuild: rm -rf dist && ./build.sh"
 
 echo "==> Done: $APP_BUNDLE"

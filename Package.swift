@@ -9,7 +9,16 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "Voicy",
-            path: "Sources/Voicy"
+            path: "Sources/Voicy",
+            exclude: [
+                "Cleanup/LLM-FINDINGS.md",
+                "Cleanup/TEXT-NOTES.md",
+                "Diagnostics/EDGE-NOTES.md",
+                "Send/SEND-SAFETY.md",
+                "Speech/ASR-NOTES.md",
+                "UI/UI-NOTES.md",
+                "VoiceNotes/FINDINGS.md"
+            ]
         )
     ]
 )
