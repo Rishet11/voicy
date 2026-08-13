@@ -8,7 +8,9 @@ import Foundation
 enum PipelineFailure: Error, Equatable, CustomStringConvertible {
     case hotkeyUnavailable
     case microphonePermissionDenied
+    case microphonePermissionNotDetermined
     case speechRecognitionPermissionDenied
+    case speechRecognitionPermissionNotDetermined
     case contactsPermissionDenied
     case recordingAlreadyActive
     case transcriptionInProgress
@@ -30,8 +32,12 @@ enum PipelineFailure: Error, Equatable, CustomStringConvertible {
             return "HotkeyUnavailable: Ctrl+Space is already in use. Choose another hotkey in Settings."
         case .microphonePermissionDenied:
             return "MicrophonePermissionDenied: allow Voicy in System Settings > Privacy & Security > Microphone, then try again."
+        case .microphonePermissionNotDetermined:
+            return "MicrophonePermissionNotDetermined: Voicy needs Microphone access to hear you. Allow it in System Settings > Privacy & Security > Microphone."
         case .speechRecognitionPermissionDenied:
             return "SpeechRecognitionPermissionDenied: allow Voicy in System Settings > Privacy & Security > Speech Recognition, then try again."
+        case .speechRecognitionPermissionNotDetermined:
+            return "SpeechRecognitionPermissionNotDetermined: Voicy needs Speech Recognition access to transcribe you. Allow it in System Settings > Privacy & Security > Speech Recognition."
         case .contactsPermissionDenied:
             return "ContactsPermissionDenied: allow Voicy in System Settings > Privacy & Security > Contacts, then try again."
         case .recordingAlreadyActive:

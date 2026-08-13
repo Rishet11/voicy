@@ -5,7 +5,8 @@ import Foundation
 func runPipelineFailureTests() -> (passed: Int, failed: Int) {
     let failures: [PipelineFailure] = [
         .hotkeyUnavailable, .microphonePermissionDenied,
-        .speechRecognitionPermissionDenied, .contactsPermissionDenied,
+        .microphonePermissionNotDetermined, .speechRecognitionPermissionDenied,
+        .speechRecognitionPermissionNotDetermined, .contactsPermissionDenied,
         .recordingAlreadyActive, .transcriptionInProgress,
         .microphoneStartFailed, .noInputDevice,
         .deviceDeliveredZeroSamples, .noSpeechDetected, .transcriptionFailed,
@@ -27,7 +28,9 @@ func runPipelineFailureTests() -> (passed: Int, failed: Int) {
 
     let requiredNames: [(PipelineFailure, String)] = [
         (.microphonePermissionDenied, "MicrophonePermissionDenied"),
+        (.microphonePermissionNotDetermined, "MicrophonePermissionNotDetermined"),
         (.speechRecognitionPermissionDenied, "SpeechRecognitionPermissionDenied"),
+        (.speechRecognitionPermissionNotDetermined, "SpeechRecognitionPermissionNotDetermined"),
         (.noInputDevice, "NoInputDevice"),
         (.deviceDeliveredZeroSamples, "DeviceDeliveredZeroSamples"),
         (.noSpeechDetected, "NoSpeechDetected"),

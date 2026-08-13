@@ -226,8 +226,8 @@ final class Pipeline {
             present(failure: .transcriptionInProgress)
             return
         }
-        let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
-        let speechStatus = SFSpeechRecognizer.authorizationStatus()
+        let micStatus = VoicyPermissions.microphone
+        let speechStatus = VoicyPermissions.speechRecognition
         if micStatus == .notDetermined || speechStatus == .notDetermined {
             guard !permissionRequestInFlight else { return }
             permissionRequestInFlight = true
@@ -297,12 +297,13 @@ final class Pipeline {
         stopLevelMeter()
         let pcm = recorder.stop()
         recordingIndicator.hide()
+        if let failure = permissionFailure() {
+            cancelLiveSession()
+            present(failure: failure)
+            return
+        }
         guard !pcm.isEmpty else {
-            if #available(macOS 26.0, *), let session = liveSession as? LiveTranscriptionSession {
-                session.cancel()
-            }
-            liveSession = nil
-            liveStart = nil
+            cancelLiveSession()
             present(failure: .deviceDeliveredZeroSamples)
             return
         }
@@ -310,11 +311,7 @@ final class Pipeline {
         for sample in pcm { energy += sample * sample }
         let rms = (energy / Float(pcm.count)).squareRoot()
         guard rms >= 0.001 else {
-            if #available(macOS 26.0, *), let session = liveSession as? LiveTranscriptionSession {
-                session.cancel()
-            }
-            liveSession = nil
-            liveStart = nil
+            cancelLiveSession()
             present(failure: .noSpeechDetected)
             return
         }
@@ -660,26 +657,11 @@ final class Pipeline {
     }
 
     private func requestMicrophone() async -> Bool {
-        switch AVCaptureDevice.authorizationStatus(for: .audio) {
-        case .authorized: return true
-        case .notDetermined: return await AVCaptureDevice.requestAccess(for: .audio)
-        case .denied, .restricted: return false
-        @unknown default: return false
-        }
+        await VoicyPermissions.requestMicrophone()
     }
 
     private func requestSpeechRecognition() async -> Bool {
-        switch SFSpeechRecognizer.authorizationStatus() {
-        case .authorized: return true
-        case .notDetermined:
-            return await withCheckedContinuation { continuation in
-                SFSpeechRecognizer.requestAuthorization { status in
-                    continuation.resume(returning: status == .authorized)
-                }
-            }
-        case .denied, .restricted: return false
-        @unknown default: return false
-        }
+        await VoicyPermissions.requestSpeechRecognition()
     }
 
     /// Explicitly resolves both recording permissions before any engine start.
@@ -702,6 +684,27 @@ final class Pipeline {
             print("[voicy] contacts: \(error)")
             return false
         }
+    }
+
+    private func permissionFailure() -> PipelineFailure? {
+        switch VoicyPermissions.microphone {
+        case .notDetermined: return .microphonePermissionNotDetermined
+        case .denied, .restricted: return .microphonePermissionDenied
+        case .authorized: break
+        }
+        switch VoicyPermissions.speechRecognition {
+        case .notDetermined: return .speechRecognitionPermissionNotDetermined
+        case .denied, .restricted: return .speechRecognitionPermissionDenied
+        case .authorized: return nil
+        }
+    }
+
+    private func cancelLiveSession() {
+        if #available(macOS 26.0, *), let session = liveSession as? LiveTranscriptionSession {
+            session.cancel()
+        }
+        liveSession = nil
+        liveStart = nil
     }
 
     // MARK: - Helpers
