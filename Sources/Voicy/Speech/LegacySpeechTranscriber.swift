@@ -19,19 +19,9 @@ final class LegacySpeechTranscriber: Transcriber {
     /// inventory (same fallback chain as the primary engine).
     private let resolvedLocale: Task<Locale, Never>
 
-    /// When true, requests run with a compiled custom language model built from
-    /// the per-call hints (cached by `CustomLanguageModelCache`). This is the
-    /// documented `SFSpeechRecognitionRequest.customizedLanguageModel`
-    /// mechanism, the real replacement for the ineffective `contextualStrings`.
-    private let useCustomLanguageModel: Bool
-
-    init(
-        locale: Locale = TranscriberLocale.requestedLocale(),
-        useCustomLanguageModel: Bool = false
-    ) {
+    init(locale: Locale = TranscriberLocale.requestedLocale()) {
         self.locale = locale
         self.resolvedLocale = Task { await TranscriberLocale.availableLocale(for: locale).locale }
-        self.useCustomLanguageModel = useCustomLanguageModel
     }
 
     /// Requests (and waits for) speech recognition permission.
@@ -58,10 +48,6 @@ final class LegacySpeechTranscriber: Transcriber {
         request.requiresOnDeviceRecognition = true
         if !hints.isEmpty {
             request.contextualStrings = hints
-            if useCustomLanguageModel {
-                request.customizedLanguageModel = try await CustomLanguageModelCache.shared
-                    .configuration(for: hints, locale: await resolvedLocale.value)
-            }
         }
 
         guard let buffer = makePCMBuffer(from: pcm) else {

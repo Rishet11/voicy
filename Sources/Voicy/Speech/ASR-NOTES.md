@@ -1,5 +1,15 @@
 # ASR accuracy work
 
+## Current shipped decision (2026-08-13)
+
+The shipped `SpeechAnalyzerTranscriber` passes the read-only contact-name
+snapshot supplied by the existing Contacts index to
+`AnalysisContext.contextualStrings[.general]`. Apple's documented custom
+language-model APIs were tested on macOS 26.5, but produced byte-identical
+transcripts and wrote generated model assets to disk. They were removed rather
+than retaining an ineffective privacy risk. No Speech API available on this
+machine measurably biases the shipped recognizer toward contact names.
+
 ## Log
 - Created ASR-NOTES.md; listed Speech/ dir (Transcriber.swift, LegacySpeechTranscriber.swift) and Tests/audio/ (23 clips incl. manifest.tsv).
 - Read Transcriber.swift (SpeechAnalyzer engine, macOS 26 API) and LegacySpeechTranscriber.swift (SFSpeechRecognizer fallback, en_US default).

@@ -112,10 +112,8 @@ enum TranscriberFactory {
     /// every engine re-validates it against what the machine has installed,
     /// falling back sanely when it is unavailable.
     ///
-    /// The variant engines (`LegacySpeechTranscriber` with a custom language
-    /// model, `DictationLanguageModelTranscriber`) stay constructible
-    /// directly for accuracy measurement; a caller that wants one passes it
-    /// in explicitly instead of selecting it by environment.
+    /// The legacy engine stays constructible directly for compatibility with
+    /// older macOS versions; it is not selected by environment or flags.
     static func make(
         locale: Locale = TranscriberLocale.requestedLocale()
     ) -> Transcriber {
@@ -281,79 +279,6 @@ final class SpeechAnalyzerTranscriber: Transcriber {
                 segments.append(TranscriptionSegment(
                     best: String(result.text.characters),
                     alternatives: result.alternatives.map { String($0.characters) }
-                ))
-            }
-            return TranscriptionResult(segments: segments)
-        }
-
-        let input = AnalyzerInput(buffer: buffer)
-        _ = try await analyzer.analyzeSequence(SingleInputSequence(input: input))
-        try await analyzer.finalizeAndFinishThroughEndOfInput()
-
-        return try await collector.value
-    }
-}
-
-/// Engine variant for custom-language-model measurement: the macOS 26
-/// `SpeechAnalyzer` with a `DictationTranscriber` module whose content hints
-/// include `ContentHint.customizedLanguage`, carrying a compiled
-/// `SFSpeechLanguageModel` built from the per-call hints.
-///
-/// `SpeechTranscriber` (the shipped module) exposes NO language-model hook —
-/// verified in the macOS 26 SDK swiftinterface. `DictationTranscriber` is the
-/// only SpeechModule with `ContentHint.customizedLanguage(modelConfiguration:)`.
-/// This engine exists to measure whether that hook actually fixes names.
-@available(macOS 26.0, *)
-final class DictationLanguageModelTranscriber: Transcriber {
-    private let locale: Locale
-    /// Effective locale, resolved once against the machine's installed
-    /// inventory (same fallback chain as the primary engine).
-    private let resolvedLocale: Task<Locale, Never>
-
-    init(locale: Locale) {
-        self.locale = locale
-        self.resolvedLocale = Task { await TranscriberLocale.availableLocale(for: locale).locale }
-    }
-
-    func transcribe(pcm: [Float], hints: [String]) async throws -> String {
-        try await transcribeDetailed(pcm: pcm, hints: hints).best
-    }
-
-    func transcribeDetailed(pcm: [Float], hints: [String]) async throws -> TranscriptionResult {
-        var contentHints: Set<DictationTranscriber.ContentHint> = []
-        if !hints.isEmpty {
-            let configuration = try await CustomLanguageModelCache.shared
-                .configuration(for: hints, locale: await resolvedLocale.value)
-            contentHints.insert(.customizedLanguage(modelConfiguration: configuration))
-        }
-
-        // Options mirror SpeechTranscriber.Preset.transcription: punctuation on,
-        // no emoji/etiquette rewriting, no alternatives (alternatives doubled
-        // latency for no accuracy gain on the primary engine).
-        let module = DictationTranscriber(
-            locale: await resolvedLocale.value,
-            contentHints: contentHints,
-            transcriptionOptions: [.punctuation],
-            reportingOptions: [],
-            attributeOptions: []
-        )
-        let analyzer = SpeechAnalyzer(modules: [module])
-
-        let analysisFormat = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [module])
-            ?? AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false)!
-
-        try await analyzer.prepareToAnalyze(in: analysisFormat)
-
-        guard let buffer = SpeechBufferFactory.makeBuffer(from: pcm, to: analysisFormat) else {
-            throw AudioTranscribeFailure.invalidAudio
-        }
-
-        let collector = Task { () -> TranscriptionResult in
-            var segments: [TranscriptionSegment] = []
-            for try await result in module.results where result.isFinal {
-                segments.append(TranscriptionSegment(
-                    best: String(result.text.characters),
-                    alternatives: []
                 ))
             }
             return TranscriptionResult(segments: segments)
