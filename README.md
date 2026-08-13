@@ -78,11 +78,11 @@ Turning *"message Pulkit that I'll be late"* into a delivered WhatsApp message m
 
 ### 1. Hearing a name correctly
 
-Every speech engine on earth mangles Indian names. "Pulkit" becomes "pull kit". "Aarav" becomes "our of". A dictation app can shrug this off — you'll fix the typo. **A messaging app cannot.** Get the name wrong and the message goes to the wrong person, or nowhere.
+Every speech engine on earth mangles Indian names. "Pulkit" becomes "Paul Kit". "Aarav" becomes "our". A dictation app can shrug this off, you'll fix the typo. **A messaging app cannot.** Get the name wrong and the message goes to the wrong person, or nowhere.
 
-**What Voicy does:** it loads your contacts *before* you speak and feeds every name into the recognizer as an expected word. The engine is no longer guessing from the whole English language — it's biased toward the ~100 names that actually matter to you.
+**What Voicy does:** it accepts that the recognizer will mangle the name and recovers afterwards. The mangled span is matched against your contacts orthographically and phonetically, so "Paul Kit" still resolves to Pulkit.
 
-This is the difference between a demo and a product.
+We tried biasing the recognizer instead, with Apple's `customizedLanguageModel` on both the legacy `SFSpeechRecognizer` path and the macOS 26 `DictationTranscriber` path. It does nothing. Pointing the API at a model file that does not exist produced no error and byte-identical transcripts on both engines, so the property is being ignored. Recognizer-side biasing is not what makes this work; the matcher is.
 
 ### 2. Knowing who you mean
 
@@ -174,9 +174,9 @@ On **21 November 2024**, WhatsApp launched voice-message transcription. Free, on
 
 Not the Mac app. Not WhatsApp Web. Over a year later, if you're working on a laptop and someone sends you a four-minute voice note, you still have to stop and listen to all four minutes.
 
-Voicy reads voice notes already sitting on your own disk and turns them into text you can scan in three seconds. Your files, your machine, WhatsApp's servers never touched.
+Voicy reads voice notes already sitting on your own disk, decoding them locally. Your files, your machine, WhatsApp's servers never touched.
 
-> ⚠️ **Status: in development.** The module is built and the file format is verified on real data, but it isn't wired into the UI yet. Everything above this section works today.
+> ⚠️ **Status: in development, and not usable yet.** Decoding is verified on real Ogg-Opus voice notes from the WhatsApp container. Transcription is the blocker: the recognizer runs `en_US`, and the real notes we sampled were mostly Hindi and Punjabi, which come out as phonetic nonsense. It needs locale selection or language detection before it is worth shipping, and it is not wired into the UI. Everything above this section works today.
 
 ---
 
@@ -212,7 +212,7 @@ Prints the real state of every permission, whether WhatsApp was found, and which
 ```
   Ctrl+Space  ──▶  Microphone  ──▶  On-device speech
    (Carbon,          (16 kHz          (SpeechAnalyzer,
-  no permission)      mono)         biased with your contacts)
+  no permission)      mono)              en_US)
                                             │
                                             ▼
    WhatsApp   ◀──   Confirm    ◀──   Who + what
@@ -230,8 +230,8 @@ Prints the real state of every permission, whether WhatsApp was found, and which
 Software READMEs usually oversell. Here's the real state.
 
 **Working, tested on real hardware:**
-- Push-to-talk, on-device transcription with contact-name biasing
-- Contact resolution with fuzzy and phonetic matching
+- Push-to-talk, on-device transcription
+- Contact resolution with fuzzy and phonetic matching, which recovers names the recognizer mangles
 - Confirm card that never steals focus from your current app
 - Message pre-filled in WhatsApp via the official deep link
 - Learned aliases persisting across restarts
@@ -240,7 +240,7 @@ Software READMEs usually oversell. Here's the real state.
 **In progress:**
 - Auto-send (built and permission-gated, not yet exercised end to end)
 - Latency tuning — currently ~1.1s to transcribe, targeting under 800ms
-- Incoming voice-note transcription (module built, not yet wired to the UI)
+- Incoming voice-note transcription (decode verified, transcription is English-only and unusable on non-English notes, not wired to the UI)
 - LLM-assisted cleanup for filler words and unusual phrasings
 
 **Not there yet:**
