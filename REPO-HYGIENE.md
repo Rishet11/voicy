@@ -234,6 +234,42 @@ is missing:
 
 Sole prerequisite for a clean checkout: macOS with Xcode 16 or newer (Swift 6).
 
+
+## Stable signing
+
+`build.sh` uses a stable signing identity. It prefers the self-signed `Voicy
+Local Signing` identity, creates it once when needed, and reuses it from the
+logged-in user's login keychain. If an Apple Development or Developer ID
+identity already exists, it reuses that stable identity instead. No paid Apple
+Developer account is required for the self-signed path.
+
+One-time manual steps:
+
+1. Run `./build.sh` on the Mac while logged in. If macOS asks to unlock the
+   login keychain, enter the Mac login password once.
+2. If this Mac has no usable Apple signing identity, open Keychain Access,
+   locate `Voicy Local Signing`, set its Code Signing trust to Always Trust,
+   save, and run `./build.sh` again. This trust action is needed once for a
+   self-signed certificate.
+3. Launch `dist/Voicy.app` and grant Microphone, Speech Recognition, Contacts,
+   Accessibility, and Input Monitoring in System Settings if requested. These
+   grants belong to the new stable identity, so grants made to an older
+   ad-hoc build may need to be granted once again.
+
+When an Apple identity already exists, no certificate trust action is needed.
+For the no-account self-signed path, the single Keychain Access trust action
+above is the only GUI step. The imported key is explicitly authorized for
+`/usr/bin/codesign` and `/usr/bin/security`; the certificate and temporary
+private-key files are removed with the staging directory when the build exits.
+
+## After a rebuild
+
+With the same bundle identifier and `Voicy Local Signing` certificate, no
+permission should need to be re-granted after a rebuild, even if the cdhash
+changes. If macOS does show a prompt, grant only the permission named in that
+prompt. Revoke/remove stale `Voicy` entries only if the app was deliberately
+re-signed with a different identity or its bundle identifier changed.
+
 ## Release checklist
 
 Everything below needs credentials or a browser and was **not** done here. In

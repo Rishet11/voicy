@@ -1,6 +1,6 @@
 #!/bin/bash
 # Builds Voicy and assembles a proper .app bundle (needed so macOS permission
-# prompts attach to the bundled process), then ad-hoc codesigns it.
+# prompts attach to the bundled process), then signs it with a stable identity.
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -101,22 +101,62 @@ printf 'APPL????' > "$STAGED_BUNDLE/Contents/PkgInfo"
 # above, and the recursive clear is deliberately fatal if it cannot complete.
 xattr -cr "$STAGED_BUNDLE"
 
-# Sign with a STABLE identity. Ad-hoc signing (--sign -) mints a new code
-# identity on every build, so macOS treats each rebuild as a different app and
-# silently drops every TCC permission the user already granted (Contacts,
-# Accessibility, Input Monitoring). Using the developer certificate keeps one
-# identity across builds, so grants persist. Falls back to ad-hoc if the
-# certificate is unavailable, so the script still works on another machine.
-SIGN_ID="${VOICY_SIGN_ID:-$(security find-identity -v -p codesigning 2>/dev/null \
-  | awk -F'"' '/Apple Development|Developer ID Application/ {print $2; exit}')}"
-if [ -n "$SIGN_ID" ]; then
-  echo "==> Codesigning with stable identity: $SIGN_ID"
-  codesign --force --deep --sign "$SIGN_ID" "$STAGED_BUNDLE"
+# Ad-hoc signing (--sign -) changes the app's code identity on every build.
+# Prefer an explicitly configured identity. Otherwise create the local
+# self-signed identity once in the login keychain and reuse it every build.
+SIGNING_NAME="${VOICY_SIGNING_NAME:-Voicy Local Signing}"
+LOGIN_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
+if [ -n "${VOICY_SIGN_ID:-}" ]; then
+  SIGN_ID="$VOICY_SIGN_ID"
+elif [ -f "$LOGIN_KEYCHAIN" ] && security find-certificate -a -c "$SIGNING_NAME" \
+  -k "$LOGIN_KEYCHAIN" >/dev/null 2>&1; then
+  SIGN_ID="$SIGNING_NAME"
 else
-  echo "==> WARNING: no signing identity found; falling back to ad-hoc."
-  echo "    Permissions will reset on every rebuild."
-  codesign --force --deep --sign - "$STAGED_BUNDLE"
+  SIGN_ID="$(security find-identity -v -p codesigning 2>/dev/null \
+    | awk -F'"' '/Apple Development|Developer ID Application/ {print $2; exit}')"
 fi
+
+if [ -z "$SIGN_ID" ]; then
+  echo "==> Creating stable self-signed identity: $SIGNING_NAME"
+  SIGNING_TMP="$STAGING_ROOT/signing"
+  mkdir -p "$SIGNING_TMP"
+  cat > "$SIGNING_TMP/openssl.cnf" <<EOF
+[req]
+distinguished_name = subject
+prompt = no
+x509_extensions = codesigning
+[subject]
+CN = $SIGNING_NAME
+[codesigning]
+basicConstraints = critical,CA:FALSE
+keyUsage = critical,digitalSignature
+extendedKeyUsage = critical,codeSigning
+subjectKeyIdentifier = hash
+EOF
+  openssl req -new -x509 -newkey rsa:2048 -nodes -days 3650 \
+    -config "$SIGNING_TMP/openssl.cnf" \
+    -keyout "$SIGNING_TMP/voicy-signing.key" \
+    -out "$SIGNING_TMP/voicy-signing.crt" >/dev/null 2>&1 || fail \
+    "could not create the local signing certificate." \
+    "Install OpenSSL, then re-run ./build.sh"
+  cat "$SIGNING_TMP/voicy-signing.crt" "$SIGNING_TMP/voicy-signing.key" \
+    > "$SIGNING_TMP/voicy-signing.pem"
+  [ -f "$LOGIN_KEYCHAIN" ] || fail \
+    "the login keychain was not found at $LOGIN_KEYCHAIN." \
+    "Sign in to macOS, then re-run ./build.sh"
+  security import "$SIGNING_TMP/voicy-signing.pem" -k "$LOGIN_KEYCHAIN" \
+    -t agg -f pemseq -T /usr/bin/codesign -T /usr/bin/security >/dev/null || fail \
+    "could not import the local signing identity into the login keychain." \
+    "Import the generated certificate manually, then re-run ./build.sh"
+  SIGN_ID="$(security find-identity -v -p codesigning 2>/dev/null \
+    | awk -F'"' -v name="$SIGNING_NAME" '$2 == name {print $2; exit}')"
+  [ -n "$SIGN_ID" ] || fail \
+    "the self-signed certificate is not trusted for code signing yet." \
+    "In Keychain Access, set its Code Signing trust to Always Trust, then re-run ./build.sh"
+fi
+
+echo "==> Codesigning with stable identity: $SIGN_ID"
+codesign --force --deep --sign "$SIGN_ID" "$STAGED_BUNDLE"
 
 # codesign can itself leave Finder/provenance attributes on the bundle on
 # managed macOS volumes. Clear those signing-irrelevant attributes before the
