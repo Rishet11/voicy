@@ -6,7 +6,7 @@
 
 **Send a WhatsApp message on a Mac without touching WhatsApp.**
 
-*Fully on-device · No WhatsApp API · Never rewrites your words*
+*Fully on-device · No WhatsApp API · Review before sending*
 
 </div>
 
@@ -66,13 +66,13 @@ Recognizer hints and custom language models did not change the measured transcri
 
 You say "Pulkit". The recognizer may return something else. Voicy uses fuzzy and phonetic matching, learns corrected aliases, and asks when contacts are ambiguous.
 
-### 3. Not butchering what you said
+### 3. Keep the message under your control
 
-The parser returns *character positions*, not regenerated text. The message body is sliced from the transcript. Disfluency cleanup runs on-device and does not use a hardcoded filler-word list.
+The parser returns *character positions*, and the message starts from the transcript slice. The live path uses deterministic formatting for spoken punctuation, entities, and corrections. Its disfluency pass is deletion-only and has no hardcoded filler-word list.
 
-The body remains the user's transcript, including Hinglish.
+The on-device FoundationModels cleanup pass is not in the live path.
 
-### 4. Sending it without getting banned
+### 4. Sending it without a WhatsApp API
 
 Voicy does not use a WhatsApp API or speak to WhatsApp's servers. It opens the real app with a `whatsapp://send` link, then the user confirms in WhatsApp. Live sends are currently restricted to one allowlisted number.
 
@@ -83,9 +83,9 @@ Voicy does not use a WhatsApp API or speak to WhatsApp's servers. It opens the r
 | | Voicy | Every other Mac voice tool |
 |---|---|---|
 | Knows who you're messaging | ✅ | ❌ dumps text in a box |
-| Learns your names for people | ✅ correct once, remembers forever | ❌ |
+| Learns corrected names | ✅ aliases persist | ❌ |
 | Your voice leaves your Mac | ❌ never | ⚠️ often cloud |
-| Rewrites your words | ❌ impossible by design | ⚠️ commonly |
+| Uses a text-generation model in the live cleanup path | ❌ | ⚠️ varies |
 | Works on 2 ordinary permissions | ✅ | ❌ Accessibility demanded up front |
 
 ---
@@ -167,8 +167,8 @@ Prints the real state of every permission, whether WhatsApp was found, and which
                                             │
                                             ▼
    WhatsApp   ◀──   Confirm    ◀──   Who + what
-  (official         card              (character offsets,
-   deep link)    (never steals         never regenerated)
+  (deep link)       card              (character offsets,
+                 (never steals         formatted locally)
                     focus)
 ```
 
@@ -187,12 +187,13 @@ Software READMEs usually oversell. Here's the real state.
 - Contact resolution with fuzzy and phonetic matching, plus learned aliases
 - Confirm card that never steals focus from your current app
 - Message pre-filled in WhatsApp via a deep link
-- Disfluency cleanup using Apple's on-device FoundationModels, with no hardcoded filler list
+- Deterministic deletion-only disfluency cleanup in the live path, with no hardcoded filler list
 - Self-test reporting real permission and environment state
 
 **In progress:**
 - Latency targets met in the measured path: 317.7 ms end-of-speech tail against an 800 ms budget, and 38.7 ms prewarmed mic start against a 100 ms budget
 - Incoming voice-note transcription (decode verified, transcription is English-only and unusable on non-English notes, not wired to the UI)
+- On-device FoundationModels cleanup, warmed at launch but not used in the live path; it is bounded to 250 ms with deterministic fallback
 - Auto-send remains permission-gated and untested end to end; live sends are restricted to one allowlisted number
 
 **Not there yet:**
