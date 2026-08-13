@@ -18,6 +18,11 @@ runSelfTestIfRequested()
 // holding a key and speaking. Returns immediately when no test flag is present.
 runTestHarnessIfRequested()
 
+// Live send diagnostic: `--send-test "<spoken recipient>" "<body>"` drives the
+// real send path (resolution -> guard -> background WhatsApp sender) without
+// the confirm card. The caller asserts the human confirmation.
+runSendTestIfRequested()
+
 let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate

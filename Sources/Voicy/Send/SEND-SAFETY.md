@@ -44,7 +44,23 @@ Answers for this path:
   composer over the `AXTextField` search box, so the search field cannot be
   mistaken for the composer. The deep link itself targets the phone.
 
-### Path B (removed): confirm card -> frontmost auto-send
+### Path C (CLI diagnostic): `--send-test "<spoken>" "<body>"`
+
+`main.swift` exposes a live-send diagnostic used to exercise the real send path
+from a terminal (bundled binary only, so TCC permissions apply). It runs
+`ContactIndex` -> `ContactResolver` -> `SendGuard` -> `WhatsAppSender.send(dryRun: false)`
+— the same code the UI runs after the confirm card. The card itself is the one
+piece it bypasses: whoever passes the flag asserts the human confirmation.
+
+Guards that still hold:
+
+- `WhatsAppSender` runs the same kill switch, blocklist, and phone-digit rails.
+- The runner refuses `.ambiguous` and `.notFound` resolutions; it never guesses.
+- The flag requires explicit invocation with recipient and body as arguments;
+  nothing triggers it by default and nothing outside this repo's CLI can.
+- Message bodies are never printed; only their length.
+
+### Path D (historical, superseded): confirm card -> frontmost auto-send
 
 The previous implementation opened the deep link with an activating
 `NSWorkspace.open`, called `activateIfNeeded()`, required
