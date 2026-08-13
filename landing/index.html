@@ -12,8 +12,9 @@
 
 <header class="site-header">
   <nav class="nav wrap" aria-label="Primary">
-    <a class="brand" href="#top">Voicy<span class="brand-dot"></span></a>
+    <a class="brand" href="#top"><svg class="brand-mark" width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><rect width="28" height="28" rx="7" fill="var(--green)"/><rect x="7.2" y="11" width="2.8" height="6" rx="1.4" fill="var(--on-green)"/><rect x="11.5" y="8.2" width="2.8" height="11.6" rx="1.4" fill="var(--on-green)"/><rect x="15.8" y="11" width="2.8" height="6" rx="1.4" fill="var(--on-green)"/><path d="M19 16.6L20.9 18.5L24.2 13.2" stroke="var(--on-green)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>Voicy</a>
     <ul class="nav-links">
+      <li><a href="#how">How</a></li>
       <li><a href="#slice">Mechanism</a></li>
       <li><a href="#names">Names</a></li>
       <li><a href="#privacy">Privacy</a></li>
@@ -36,8 +37,8 @@
           <a class="btn btn-primary" href="https://github.com/Rishet11/voicy">Build from source</a>
           <a class="btn btn-ghost" href="#slice">See how</a>
         </div>
-        <p class="fineprint">macOS. No release yet. Build it from source.</p>
-        <p class="privacy-line">Your audio stays on this Mac. Voicy makes zero network calls. Message content is never stored or logged.</p>
+        <p class="fineprint">For macOS 26 on Apple Silicon. No packaged release yet, build from source.</p>
+        <p class="privacy-line">Everything stays on this Mac. Transcription runs on device, Voicy makes zero network calls, and your messages are never stored.</p>
       </div>
 
       <figure class="hero-visual">
@@ -46,8 +47,35 @@
           <p class="confirm-body">I'll be late, leaving now.</p>
           <p class="confirm-keys"><kbd>&crarr;</kbd> send <span aria-hidden="true">&middot;</span> <kbd>esc</kbd> cancel</p>
         </div>
-        <figcaption>Nothing is sent until you press a key.</figcaption>
+        <figcaption>You review first. Nothing sends until you press Enter.</figcaption>
       </figure>
+    </div>
+  </section>
+
+  <!-- ============ How it works in 3 steps ============ -->
+  <section class="section steps" id="how" aria-labelledby="how-h">
+    <div class="wrap">
+      <p class="eyebrow">how it works</p>
+      <h2 id="how-h">Hold, speak, confirm. That is it.</h2>
+      <ol class="steps-grid">
+        <li class="step">
+          <span class="step-num">01</span>
+          <h3>Hold Ctrl+Space and speak</h3>
+          <p>Say <span class="said">"message Pulkit that I'll be late"</span>. While you talk, text streams in 35 partials. Mic starts in 31.5 ms, transcript tails in 149 ms.</p>
+        </li>
+        <li class="step">
+          <span class="step-num">02</span>
+          <h3>Check the card</h3>
+          <p>Voicy matches the name with fuzzy and phonetic lookup, so <span class="said">Paul Kit</span> still finds Pulkit. Correct a mangled name once and the alias is learned for next time. The card shows contact and message. Press <kbd>Return</kbd> to send, <kbd>esc</kbd> to cancel, <kbd>Cmd+E</kbd> to edit.</p>
+        </li>
+        <li class="step">
+          <span class="step-num">03</span>
+          <h3>WhatsApp opens, you stay in control</h3>
+          <p>A <code>whatsapp://send</code> deep link prefills the chat. If you enabled auto-send, Voicy posts Return only if WhatsApp is focused and the composer holds exactly that text. Otherwise it aborts with a named error and leaves the text unsent.</p>
+        </li>
+      </ol>
+      <p class="spec spec-steps"><span>macOS 26</span><span>Apple Silicon</span><span>WhatsApp Desktop</span><span>35 partials streaming</span><span>31.5 ms mic start</span><span>149 ms tail</span><span>72 cases, 90.9% top-1</span><span>zero network calls</span></p>
+      <p class="steps-note">Two permissions to start: Microphone and Contacts. Optional toggles for hold a key to talk and send without pressing Enter need Input Monitoring and Accessibility, both off by default. Measured via audio injection harness, same code path as the microphone, 72 case eval at 90.9% top-1 with 100% correct refusal and 0.0% wrong-person sends.</p>
     </div>
   </section>
 
@@ -72,6 +100,7 @@
           <span><i class="sw sw-body"></i>body, sliced by character offset, never regenerated</span>
         </div>
       </div>
+      <button type="button" class="tape-replay" aria-label="Replay 11 second slice animation">Watch 11s loop · Replay</button>
 
       <p class="slice-note">The body is copied by character offset. There is no rewrite step.</p>
     </div>
@@ -135,8 +164,8 @@
     </div>
     <div class="wrap rules">
       <article class="rule">
-        <h3>Keep your words</h3>
-        <p>The body is copied from the transcript. Voicy does not rewrite it.</p>
+        <h3>What you say is what you get</h3>
+        <p>Your exact words, in your own typing style to friends. No AI rewriting, no cleanup, no surprises. Fidelity is the feature.</p>
       </article>
       <article class="rule">
         <h3>Ask when names collide</h3>
@@ -153,18 +182,17 @@
   <section class="section section-paper" id="privacy" aria-labelledby="privacy-h">
     <div class="wrap two-col two-col-wide">
       <div>
-        <h2 id="privacy-h">Your audio stays on this Mac</h2>
-        <p class="answer">Nothing leaves.</p>
+        <h2 id="privacy-h">Nothing leaves this Mac</h2>
+        <p class="answer">Zero network calls. Airplane mode changes nothing.</p>
         <ul class="facts">
-          <li><strong>Audio</strong> is transcribed on-device.</li>
-          <li><strong>Network</strong> calls: zero.</li>
-          <li><strong>Messages</strong> are never stored or logged.</li>
-          <li><strong>Contacts</strong> are read into memory, never uploaded.</li>
-          <li><strong>Microphone</strong> opens only while you hold the key.</li>
+          <li><strong>Your voice</strong> never leaves this Mac. Transcription runs on device with Apple Speech. No server, no API key.</li>
+          <li><strong>Your messages</strong> are never stored. Not in a log, not in a file, not anywhere. The only thing saved is a name mapping, like Pulkit to this contact. Never message content.</li>
+          <li><strong>Your contacts</strong> are read into memory to match a name, never uploaded.</li>
+          <li><strong>Your microphone</strong> opens only while you hold the key and closes when you let go. No background listening, no screen recording.</li>
         </ul>
       </div>
       <div class="perms">
-        <p class="perm-note">Voicy asks for Microphone and Contacts. Input Monitoring and Accessibility are optional and off by default.</p>
+        <p class="perm-note">Two permissions to start: Microphone and Contacts. Two optional toggles, hold a key to talk and send without pressing Enter, need Input Monitoring and Accessibility. Both off by default.</p>
       </div>
     </div>
   </section>
@@ -198,7 +226,7 @@
         </details>
         <details>
           <summary>What is not finished?<span class="chev" aria-hidden="true"></span></summary>
-          <div class="faq-a"><p>Auto-send is untested end to end, and live sends are currently restricted to one allowlisted number. Voice notes decode but are not wired into the UI. The <a href="pitch.html#unproven">pitch page</a> lists the limits.</p></div>
+          <div class="faq-a"><p>Voicy decodes real Ogg-Opus voice notes locally, but transcription is blocked on language, the current recognizer runs en_US and is not wired into the UI. Auto-send posts Return only if WhatsApp is focused and the composer holds exactly the expected text, otherwise it aborts with a named error and the text stays unsent. Delivery still needs a person to confirm. The <a href="pitch.html#unproven">pitch page</a> lists the limits.</p></div>
         </details>
       </div>
     </div>
@@ -215,9 +243,32 @@
 
 <footer class="site-footer">
   <div class="wrap footer-inner">
-    <p>Open source, built for macOS.</p>
-    <a href="https://github.com/Rishet11/voicy">github.com/Rishet11/voicy</a>
+    <p>Made with <span class="footer-heart">♥</span> by Rishet — powered by <a class="footer-ao" href="https://github.com/Rishet11/agent-orchestrator">AO</a></p>
   </div>
 </footer>
+<script>
+(function(){
+  var btn=document.querySelector('.tape-replay');
+  var tape=document.querySelector('.tape');
+  if(!btn||!tape)return;
+  var toks=tape.querySelectorAll('.tok');
+  function replay(){
+    var reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if(reduced){
+      tape.style.opacity='0.72';
+      setTimeout(function(){tape.style.opacity='';},160);
+      btn.style.transform='scale(0.96)';
+      setTimeout(function(){btn.style.transform='';},120);
+      return;
+    }
+    toks.forEach(function(el){el.style.animation='none';});
+    void tape.offsetWidth;
+    toks.forEach(function(el){el.style.animation='';});
+    btn.style.transform='scale(0.96)';
+    setTimeout(function(){btn.style.transform='';},120);
+  }
+  btn.addEventListener('click',replay);
+})();
+</script>
 </body>
 </html>
