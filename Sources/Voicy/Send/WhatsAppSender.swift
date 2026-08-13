@@ -76,7 +76,10 @@ final class WhatsAppSender {
     private let openURL: (URL) -> Bool
     /// Injected app-launch primitive (the `open -a WhatsApp` behaviour). Used
     /// only by the escape hatch: launch WhatsApp once, activating, because a
-    /// background-launched WhatsApp never creates a window.
+    /// background-launched WhatsApp never creates a window. Spawns the system
+    /// `/usr/bin/open` tool: measured to launch WhatsApp in ~1 s, while an
+    /// in-process LaunchServices open of a not-running WhatsApp was observed
+    /// delayed by over a minute.
     private let launchApp: () -> Bool
     /// Injected hide primitive (Cmd+H behaviour). The default hides WhatsApp
     /// without quitting it, which returns focus to the user's app while the
@@ -100,12 +103,15 @@ final class WhatsAppSender {
              return true
          },
          launchApp: @escaping () -> Bool = {
-             guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "net.whatsapp.WhatsApp") else {
+             let process = Process()
+             process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+             process.arguments = ["-a", "WhatsApp"]
+             do {
+                 try process.run()
+                 return true
+             } catch {
                  return false
              }
-             let configuration = NSWorkspace.OpenConfiguration()
-             NSWorkspace.shared.openApplication(at: appURL, configuration: configuration)
-             return true
          },
          hideWhatsApp: @escaping () -> Void = { WhatsAppAccessibility.hideWhatsAppIfRunning() },
          submitSend: @escaping () -> WhatsAppSubmitKind? = { WhatsAppAccessibility.submitSend() },
