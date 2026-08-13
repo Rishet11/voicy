@@ -190,7 +190,9 @@ func runSendGuardTests() async -> (passed: Int, failed: Int) {
     /// mean "nothing happened" rather than "happened and was reported oddly".
     final class OpenSpy: @unchecked Sendable {
         var opened = 0
+        var activated = 0
         func open(_ url: URL) -> Bool { opened += 1; return true }
+        func activate(_ url: URL) -> Bool { activated += 1; return true }
     }
 
     func sender(_ blocklist: Blocklist, spy: OpenSpy,
@@ -199,6 +201,7 @@ func runSendGuardTests() async -> (passed: Int, failed: Int) {
                 cleared: @escaping (String) -> Bool = { _ in true }) -> WhatsAppSender {
         WhatsAppSender(blocklist: blocklist, probe: p, waitOptions: fastOptions(),
                        openURL: { spy.open($0) },
+                       activateOpenURL: { spy.activate($0) },
                        submitSend: { submitted.value += 1; return .postedReturn },
                        composeCleared: cleared)
     }
@@ -314,6 +317,35 @@ func runSendGuardTests() async -> (passed: Int, failed: Int) {
     t.equal(uncleared, .sentUnverified, "an uncleared composer is reported as sentUnverified")
     t.equal(unclearedSpy.opened, 1, "the unverified path still opened the link once")
     t.equal(unclearedReturns.value, 1, "the unverified path submitted exactly once and never retried")
+
+    // WhatsApp running but exposing no window: the escape hatch opens once
+    // with activation, and when the window still never appears the outcome
+    // names the real cause instead of claiming success.
+    let windowlessSpy = OpenSpy()
+    let windowless = await sender(openList, spy: windowlessSpy, probe: probe(window: false))
+        .send(phone: firstContact, body: "hello", contactName: "Pulkit", dryRun: false)
+    t.equal(windowless, .prefilledNotReady(reason: WhatsAppComposeWaiter.Failure.windowNotFound.reason),
+            "a windowless WhatsApp is reported with its specific cause")
+    t.equal(windowlessSpy.opened, 1, "the background open happens exactly once")
+    t.equal(windowlessSpy.activated, 1, "the escape hatch opens exactly once with activation")
+
+    // Cold start: WhatsApp appears during the second wait, so the escape hatch
+    // turns a not-ready first wait into a verified send.
+    var coldPolls = 0
+    let coldProbe = WhatsAppComposeWaiter.Probe(
+        isTrusted: { true },
+        appIsRunning: { coldPolls += 1; return coldPolls > 20 },
+        hasWindow: { coldPolls += 1; return coldPolls > 30 },
+        composeText: { coldPolls += 1; return coldPolls > 30 ? "hello" : nil },
+        sendButtonExists: { true })
+    let coldSpy = OpenSpy()
+    let coldReturns = Counter()
+    let cold = await sender(openList, spy: coldSpy, probe: coldProbe, submitted: coldReturns)
+        .send(phone: firstContact, body: "hello", contactName: "Pulkit", dryRun: false)
+    t.equal(cold, .sentVerified, "a WhatsApp that appears during the second wait still sends")
+    t.equal(coldSpy.opened, 1, "cold start: the background open happens once")
+    t.equal(coldSpy.activated, 1, "cold start: the escape hatch fires once")
+    t.equal(coldReturns.value, 1, "cold start: exactly one submit after the window appears")
 
     // Without Accessibility the send still works and reports honestly rather
     // than blocking on an observation it cannot make (Tier-1-only path).

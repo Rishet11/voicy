@@ -7,15 +7,22 @@ enum WhatsAppSubmitKind: Equatable {
     case postedReturn
 }
 
-/// Orchestrates the confirmed WhatsApp send path: open in the background,
-/// verify, then submit. No keystroke or button press is possible before the
-/// guard accepts confirmation.
+/// Orchestrates the confirmed WhatsApp send path: open, verify, then submit.
+/// No keystroke or button press is possible before the guard accepts
+/// confirmation.
 ///
-/// The whole path runs without WhatsApp ever becoming frontmost: the deep link
-/// is opened with `activates = false`, the composer is verified through
-/// WhatsApp's own Accessibility tree (by PID, not by focus), and the message is
-/// submitted by pressing the AX send button or by delivering a Return directly
-/// to WhatsApp's PID.
+/// The preferred path never brings WhatsApp to the foreground: the deep link
+/// opens with `activates = false`, the composer is verified through WhatsApp's
+/// own Accessibility tree (by PID, not by focus), and the message is submitted
+/// by pressing the AX send button or by delivering a Return directly to
+/// WhatsApp's PID.
+///
+/// One escape hatch exists, because WhatsApp will not materialize its chat
+/// window without being activated (a cold launch or a window closed to the
+/// tray leaves the composer unreachable in the background). In those two cases
+/// the sender opens the deep link ONCE with activation, waits for the
+/// composer, hands focus straight back to the user's app, and only then
+/// submits and verifies in the background.
 ///
 /// Every decision about *whether* to open anything lives in `SendGuard`, which
 /// is pure and unit-tested. This type only performs the effect the guard
@@ -26,10 +33,10 @@ enum WhatsAppSubmitKind: Equatable {
 final class WhatsAppSender {
     /// Clear, machine-checkable outcome of a send attempt.
     enum Outcome: Equatable {
-        /// Deep link opened, but auto-send is unavailable: WhatsApp (still in
-        /// the background) has the message sitting UNSENT in the composer.
-        /// Nothing has left the account. This is the only non-refusal outcome
-        /// the app can produce without Accessibility.
+        /// Deep link opened, but auto-send is unavailable: WhatsApp has the
+        /// message sitting UNSENT in the composer. Nothing has left the
+        /// account. This is the only non-refusal outcome the app can produce
+        /// without Accessibility.
         case prefilled
         /// The exact confirmed body was verified in the composer, the send was
         /// submitted, and WhatsApp cleared the composer afterwards.
@@ -65,6 +72,9 @@ final class WhatsAppSender {
     /// The default opens the deep link without activating WhatsApp, so the
     /// user's current app keeps focus.
     private let openURL: (URL) -> Bool
+    /// The same open but WITH activation — the escape hatch used only when
+    /// WhatsApp refuses to show its window in the background.
+    private let activateOpenURL: (URL) -> Bool
     /// Injected submission primitive. The default presses WhatsApp's AX send
     /// button, falling back to a Return delivered straight to WhatsApp's PID.
     /// Neither path ever requires WhatsApp to be frontmost.
@@ -82,12 +92,14 @@ final class WhatsAppSender {
              NSWorkspace.shared.open(url, configuration: configuration)
              return true
          },
+         activateOpenURL: @escaping (URL) -> Bool = { NSWorkspace.shared.open($0) },
          submitSend: @escaping () -> WhatsAppSubmitKind? = { WhatsAppAccessibility.submitSend() },
          composeCleared: @escaping (String) -> Bool = { WhatsAppAccessibility.composerCleared(expected: $0) }) {
         self.blocklist = blocklist
         self.probe = probe
         self.waitOptions = waitOptions
         self.openURL = openURL
+        self.activateOpenURL = activateOpenURL
         self.submitSend = submitSend
         self.composeCleared = composeCleared
     }
@@ -174,8 +186,35 @@ final class WhatsAppSender {
             return .prefilled
         }
 
-        switch await confirmComposerReady(expectedText: body) {
+        var readiness = await confirmComposerReady(expectedText: body)
+        var activatedOnce = false
+
+        // Escape hatch: WhatsApp will not show its chat window without being
+        // activated (cold launch, or the window was closed to the tray), and
+        // without a window there is no composer to fill or submit. Open once
+        // with activation, then hand focus back the moment the composer is
+        // ready — before anything is submitted.
+        if case .notReady(let cause, _, _, _) = readiness,
+           cause == .appNotRunning || cause == .windowNotFound {
+            log("READY-WAIT: \(cause.reason); opening once with activation so WhatsApp can show the chat")
+            guard activateOpenURL(url) else {
+                log("FAIL: activating NSWorkspace.open returned false")
+                return .failed("activating NSWorkspace.open failed")
+            }
+            activatedOnce = true
+            var coldOptions = waitOptions
+            coldOptions.timeout = 25.0
+            coldOptions.maxAttempts = 500
+            readiness = await WhatsAppComposeWaiter.wait(probe: probe, expectedText: body, options: coldOptions)
+        }
+
+        switch readiness {
         case .ready:
+            // If the escape hatch fired, give the user their app back before
+            // submitting: the AX submit does not need WhatsApp frontmost.
+            if activatedOnce {
+                WhatsAppAccessibility.restoreFrontmostIfWhatsApp(previous: previousFrontmost)
+            }
             guard let kind = submitSend() else {
                 log("FAIL: WhatsApp disappeared before the message could be submitted")
                 return .failed("WhatsApp quit during send")
