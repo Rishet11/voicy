@@ -80,6 +80,11 @@ struct TranscriptionResult: Sendable {
     }
 }
 
+/// Send-path seam: only finalized results are converted to text.
+enum FinalTranscriptGate {
+    static func text(from result: TranscriptionResult) -> String { result.best }
+}
+
 /// The transcription engine contract. Returned by `TranscriberFactory.make()`.
 /// The orchestrator swaps the engine behind this protocol.
 protocol Transcriber: Sendable {

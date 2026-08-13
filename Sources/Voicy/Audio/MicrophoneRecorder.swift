@@ -17,6 +17,9 @@ final class MicrophoneRecorder {
     private var targetFormat: AVAudioFormat?
     private var pcmSamples: [Float] = []
 
+    /// Delivers each converted capture chunk while recording.
+    var onSamples: (@Sendable ([Float]) -> Void)?
+
     /// The 16 kHz mono Float32 samples captured since `start()`.
     var captured: [Float] { pcmSamples }
 
@@ -197,5 +200,6 @@ final class MicrophoneRecorder {
         guard let channel = out.floatChannelData?[0] else { return }
         if firstBufferAt == nil, out.frameLength > 0 { firstBufferAt = Date() }
         pcmSamples.append(contentsOf: UnsafeBufferPointer(start: channel, count: Int(out.frameLength)))
+        onSamples?(Array(UnsafeBufferPointer(start: channel, count: Int(out.frameLength))))
     }
 }

@@ -118,6 +118,7 @@ struct TestHarness {
     func run() async -> Int32 {
         var failures = 0
 
+
         if has("--unit-tests") {
             failures += await runUnitTests()
         }
@@ -660,6 +661,10 @@ struct TestHarness {
             print("  FAIL no partial arrived before the audio ended; this is not streaming")
             failures += 1
         }
+        if partials.count < 2 {
+            print("  FAIL fewer than two partial revisions for multi-word utterance")
+            failures += 1
+        }
 
         // Same clip, one shot, through the shipped engine.
         let oneShot = TranscriberFactory.make(locale: engineLocale())
@@ -964,6 +969,9 @@ struct TestHarness {
         print("speech locale: \(speechLocale.passed) passed, \(speechLocale.failed) failed")
         failed += speechLocale.failed
 
+        let streaming = runStreamingSafetyTests()
+        print("streaming:     \(streaming.passed) passed, \(streaming.failed) failed")
+        failed += streaming.failed
         return failed
     }
 

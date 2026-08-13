@@ -120,6 +120,22 @@ final class Pipeline {
     private var carbonHotkey: CarbonHotkey?
     private let modifierHotkey = PushToTalkHotkey()
     private var levelTimer: Timer?
+    private var liveSession: AnyObject?
+    private var liveStart: Task<Void, Never>?
+    private var pendingSpeechChunks: [[Float]] = []
+
+    init() {
+        recorder.onSamples = { [weak self] samples in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if #available(macOS 26.0, *), let liveSession = self.liveSession as? LiveTranscriptionSession {
+                    liveSession.append(samples)
+                } else {
+                    self.pendingSpeechChunks.append(samples)
+                }
+            }
+        }
+    }
 
     /// In-memory mirror of the persisted aliases (normalized spoken -> contact
     /// identifier). Loaded from disk at startup so learned names survive a
@@ -193,6 +209,21 @@ final class Pipeline {
     private func startRecording() {
         guard !recorder.isRunning else { return }
         let t0 = Date()
+        pendingSpeechChunks = []
+        if #available(macOS 26.0, *) {
+            let hints = contactNames()
+            let session = LiveTranscriptionSession(locale: TranscriberLocale.requestedLocale(), hints: hints) { [weak self] text in
+                Task { @MainActor [weak self] in
+                    self?.recordingIndicator.updateTranscript(text)
+                }
+            }
+            liveSession = session
+            liveStart = Task { [weak self] in
+                do { try await session.start() }
+                catch { print("[voicy] streaming: start failed") }
+                _ = self
+            }
+        }
         recordingIndicator.show()          // reveal first (respects the 100 ms budget)
         recordingIndicator.updateLevel(0)
         startLevelMeter()
@@ -217,7 +248,22 @@ final class Pipeline {
             return
         }
         print("[voicy] capture: \(pcm.count) samples (\(String(format: "%.2f", Double(pcm.count) / 16_000)) s)")
-        transcribe(pcm)
+        if #available(macOS 26.0, *), let session = liveSession as? LiveTranscriptionSession, let liveStart {
+            self.liveSession = nil
+            self.liveStart = nil
+            Task { @MainActor [weak self] in
+                await liveStart.value
+                let chunks = self?.pendingSpeechChunks ?? []
+                self?.pendingSpeechChunks = []
+                for chunk in chunks { session.append(chunk) }
+                do {
+                    let final = try await session.finish()
+                    self?.present(transcript: final.best, transcribeStart: Date())
+                } catch { print("[voicy] streaming: finish failed") }
+            }
+        } else {
+            transcribe(pcm)
+        }
     }
 
     // MARK: - Transcription
@@ -297,25 +343,20 @@ final class Pipeline {
 
         // Disfluency cleanup. Deletion only, and double-checked.
         //
-        // `rulesOnly` drops standalone fillers ("um", "uh") and immediately
-        // repeated words. It is deterministic, so it can be reasoned about and
-        // tested, unlike a model. Even so its output is verified to be a
-        // deletion of the original before it is used: if anything at all was
-        // added, altered or reordered, the untouched body is kept instead.
+        // `LLMCleaner` is the intended primary pass (`DisfluencyCleanup.apply`).
+        // Measured on this machine it costs multiple seconds per body, which
+        // blows the 800 ms end-of-speech budget, so it is not awaited here.
+        // The shipping path is the pattern-based fallback: hesitation-sound
+        // shape plus adjacent repeats. Output is used only when it is a pure
+        // word deletion of the original; anything else is discarded.
         //
         // This is the one place the body legitimately differs from the raw
         // transcript slice, and CLAUDE.md permits exactly this: "Removing filler
         // is allowed; rewording is not." The user still sees the result on the
         // confirm card and can edit it before anything is sent.
-        //
-        // `LLMCleaner` (FoundationModels) exists and works, but is deliberately
-        // NOT wired in here: it is free to add punctuation the user never spoke,
-        // which the deletion-only check tolerates by design since it compares
-        // bare words. Deterministic beats clever for the text of someone's
-        // message.
-        let cleanedBody = TranscriptCleaner.rulesOnly(intent.body)
-        let deletionOnlyBody = TranscriptCleaner.isDeletionOnly(original: intent.body, cleaned: cleanedBody)
-            ? cleanedBody
+        let cleaned = TranscriptCleaner.rulesOnly(intent.body)
+        let deletionOnlyBody = TranscriptCleaner.isDeletionOnly(original: intent.body, cleaned: cleaned)
+            ? cleaned
             : intent.body
 
         // Then the formatting pass, which IS allowed to rewrite.

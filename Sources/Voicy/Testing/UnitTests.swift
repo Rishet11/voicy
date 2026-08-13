@@ -32,6 +32,17 @@ struct TestRun {
     var result: (passed: Int, failed: Int) { (passed, failed) }
 }
 
+func runStreamingSafetyTests() -> (passed: Int, failed: Int) {
+    var t = TestRun("streaming")
+    let partial = "send hello to Pul"
+    let final = TranscriptionResult(best: "send hello to Pulkit")
+    t.check(FinalTranscriptGate.text(from: final) == final.best,
+            "send text comes from final result")
+    t.check(FinalTranscriptGate.text(from: final) != partial,
+            "partial text cannot be sent")
+    return t.result
+}
+
 // MARK: - Contacts
 
 func runContactTests() -> (passed: Int, failed: Int) {
