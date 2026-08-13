@@ -33,7 +33,7 @@ import Foundation
 @MainActor
 func runTestHarnessIfRequested() {
     let args = CommandLine.arguments
-    let modes = ["--test-audio", "--test-audio-suite", "--unit-tests", "--test-latency",
+    let modes = ["--test-audio", "--test-audio-suite", "--unit-tests", "--test-stress", "--test-latency",
                  "--test-wer", "--test-onset", "--test-stream"]
     guard args.contains(where: { modes.contains($0) }) else { return }
 
@@ -121,6 +121,10 @@ struct TestHarness {
 
         if has("--unit-tests") {
             failures += await runUnitTests()
+        }
+
+        if has("--test-stress") {
+            failures += runStressTests(quiet: quiet)
         }
 
         if let path = value(for: "--test-audio") {
