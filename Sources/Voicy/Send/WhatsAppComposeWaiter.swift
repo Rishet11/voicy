@@ -102,12 +102,13 @@ enum WhatsAppComposeWaiter {
 
     /// Timing knobs. Defaults are the shipped values; there is no env var or
     /// flag behind them. Tests inject a fake clock so they run instantly.
-    /// The 12 s timeout covers a cold WhatsApp launch, where the window and the
-    /// composer can take several seconds to appear after the deep link opens.
+    /// The first wait is short: a warm WhatsApp is ready within a couple of
+    /// seconds, and when it is not, the sender's escape hatch (one activating
+    /// open, then a longer second wait) takes over.
     struct Options {
-        var timeout: TimeInterval = 12.0
+        var timeout: TimeInterval = 6.0
         var pollInterval: TimeInterval = 0.05
-        var maxAttempts: Int = 240
+        var maxAttempts: Int = 120
         /// Monotonic-ish source of "now", in seconds.
         var now: () -> TimeInterval = { Date().timeIntervalSinceReferenceDate }
         /// Blocking wait between polls.

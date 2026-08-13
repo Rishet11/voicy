@@ -203,8 +203,8 @@ final class WhatsAppSender {
             }
             activatedOnce = true
             var coldOptions = waitOptions
-            coldOptions.timeout = 25.0
-            coldOptions.maxAttempts = 500
+            coldOptions.timeout = 35.0
+            coldOptions.maxAttempts = 700
             readiness = await WhatsAppComposeWaiter.wait(probe: probe, expectedText: body, options: coldOptions)
         }
 
