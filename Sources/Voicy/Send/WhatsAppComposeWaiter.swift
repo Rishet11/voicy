@@ -111,8 +111,14 @@ enum WhatsAppComposeWaiter {
         var maxAttempts: Int = 120
         /// Monotonic-ish source of "now", in seconds.
         var now: () -> TimeInterval = { Date().timeIntervalSinceReferenceDate }
-        /// Blocking wait between polls.
-        var sleep: (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) }
+        /// Blocking wait between polls. Pumps the main run loop instead of a
+        /// plain `Thread.sleep`: a hard sleep freezes NSWorkspace's
+        /// notification delivery, so a WhatsApp launched DURING the wait is
+        /// never seen by `runningApplications` and the wait times out even
+        /// though the composer is ready. Tests inject a fake clock instead.
+        var sleep: (TimeInterval) -> Void = { interval in
+            RunLoop.main.run(until: Date().addingTimeInterval(interval))
+        }
     }
 
     /// Polls until every stage is satisfied, the clock runs out, or the attempt

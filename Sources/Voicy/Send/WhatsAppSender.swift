@@ -74,17 +74,12 @@ final class WhatsAppSender {
     /// The default opens the deep link without activating WhatsApp, so the
     /// user's current app keeps focus.
     private let openURL: (URL) -> Bool
-    /// Injected app-launch primitive (the `open -a WhatsApp` behaviour). Used
-    /// only by the escape hatch: launch WhatsApp once, activating, because a
-    /// background-launched WhatsApp never creates a window. Spawns the system
-    /// `/usr/bin/open` tool: measured to launch WhatsApp in ~1 s, while an
-    /// in-process LaunchServices open of a not-running WhatsApp was observed
-    /// delayed by over a minute.
+    /// Injected app-launch primitive. It must not activate WhatsApp.
     private let launchApp: () -> Bool
-    /// Injected hide primitive (Cmd+H behaviour). The default hides WhatsApp
-    /// without quitting it, which returns focus to the user's app while the
-    /// AX tree stays reachable.
-    private let hideWhatsApp: () -> Void
+    private let legacyHideWhatsApp: () -> Void
+    private let reopenWhatsApp: (pid_t) -> Bool
+    private let unhideWhatsApp: () -> Void
+    private let requestWindow: () -> Bool
     /// Injected submission primitive. The default presses WhatsApp's AX send
     /// button, falling back to a Return delivered straight to WhatsApp's PID.
     /// Neither path ever requires WhatsApp to be frontmost.
@@ -103,9 +98,9 @@ final class WhatsAppSender {
              return true
          },
          launchApp: @escaping () -> Bool = {
-             let process = Process()
-             process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-             process.arguments = ["-a", "WhatsApp"]
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+            process.arguments = ["-g", "-j", "-a", "WhatsApp"]
              do {
                  try process.run()
                  return true
@@ -113,7 +108,10 @@ final class WhatsAppSender {
                  return false
              }
          },
-         hideWhatsApp: @escaping () -> Void = { WhatsAppAccessibility.hideWhatsAppIfRunning() },
+         hideWhatsApp: @escaping () -> Void = { },
+         reopenWhatsApp: @escaping (pid_t) -> Bool = { WhatsAppAccessibility.sendReopenEvent(toPID: $0) },
+         unhideWhatsApp: @escaping () -> Void = { WhatsAppAccessibility.unhideWhatsAppIfRunning() },
+         requestWindow: @escaping () -> Bool = { WhatsAppAccessibility.requestWindowWithoutActivation() },
          submitSend: @escaping () -> WhatsAppSubmitKind? = { WhatsAppAccessibility.submitSend() },
          composeCleared: @escaping (String) -> Bool = { WhatsAppAccessibility.composerCleared(expected: $0) }) {
         self.blocklist = blocklist
@@ -121,7 +119,10 @@ final class WhatsAppSender {
         self.waitOptions = waitOptions
         self.openURL = openURL
         self.launchApp = launchApp
-        self.hideWhatsApp = hideWhatsApp
+        self.legacyHideWhatsApp = hideWhatsApp
+        self.reopenWhatsApp = reopenWhatsApp
+        self.unhideWhatsApp = unhideWhatsApp
+        self.requestWindow = requestWindow
         self.submitSend = submitSend
         self.composeCleared = composeCleared
     }
@@ -187,6 +188,7 @@ final class WhatsAppSender {
             return .failed("could not build deep link")
         }
 
+        let previousFrontmost = NSWorkspace.shared.frontmostApplication
         log("OPEN whatsapp://send?phone=\(SendGuard.maskPhone(phone)) [body redacted] (non-activating: WhatsApp stays in the background)")
         guard openURL(url) else {
             log("FAIL: NSWorkspace.open returned false")
@@ -197,7 +199,6 @@ final class WhatsAppSender {
         // app. If the system brought WhatsApp forward anyway (a cold-launch
         // quirk on some macOS versions), hand focus straight back on the way
         // out.
-        let previousFrontmost = NSWorkspace.shared.frontmostApplication
         defer { WhatsAppAccessibility.restoreFrontmostIfWhatsApp(previous: previousFrontmost) }
 
         // Without Accessibility we can still honestly report the deep-link
@@ -211,28 +212,32 @@ final class WhatsAppSender {
         var readiness = await confirmComposerReady(expectedText: body)
         var hatchFired = false
 
-        // Escape hatch: WhatsApp will not show its chat window without being
-        // activated (cold launch, or the window was closed to the tray), and
-        // without a window there is no composer to fill or submit. Launch the
-        // WhatsApp app once (activating), hide it the moment it exists — its
-        // windows never settle on screen and focus returns to the user's app —
-        // then deliver the deep link to the hidden app and submit through the
-        // hidden Accessibility tree.
+        // Escape hatch: create WhatsApp's window through its Dock-equivalent
+        // reopen Apple Event. Every fallback below remains non-activating.
         if case .notReady(let cause, _, _, _) = readiness,
            cause == .appNotRunning || cause == .windowNotFound {
-            log("READY-WAIT: \(cause.reason); launching WhatsApp once, hiding it, then sending the deep link")
+            log("READY-WAIT: \(cause.reason); launching WhatsApp without activation")
             guard launchApp() else {
                 log("FAIL: could not launch the WhatsApp app")
                 return .failed("could not launch the WhatsApp app")
             }
             hatchFired = true
-            waitForWhatsAppProcess(seconds: 20)
-            waitOptions.sleep(1.0)
-            hideWhatsApp()
-            log("HIDE: WhatsApp hidden; its windows are off screen and the AX tree stays reachable")
+            waitForWhatsAppProcess(seconds: 60)
+            if let pid = WhatsAppAccessibility.whatsAppPID(), reopenWhatsApp(pid) {
+                log("REOPEN: Apple Event sent to WhatsApp without activation")
+            } else {
+                log("REOPEN: Apple Event was not accepted; trying non-activating unhide")
+                unhideWhatsApp()
+                _ = requestWindow()
+            }
+            // Kept as an injected compatibility hook for deterministic tests.
+            // The shipped default is a no-op, so the production path never
+            // hides or activates WhatsApp.
+            legacyHideWhatsApp()
+            waitForWhatsAppWindow(seconds: 15)
             guard openURL(url) else {
-                log("FAIL: deep link to the hidden WhatsApp returned false")
-                return .failed("deep link to the hidden WhatsApp failed")
+                log("FAIL: deep link to WhatsApp returned false")
+                return .failed("deep link to WhatsApp failed")
             }
             var coldOptions = waitOptions
             coldOptions.timeout = 35.0
@@ -253,7 +258,15 @@ final class WhatsAppSender {
                 return .failed("WhatsApp quit during send")
             }
             log("SUBMIT \(kind == .pressedButton ? "AX press on the send button" : "Return delivered to WhatsApp's PID") after exact composer verification")
-            if await confirmComposerCleared(expected: body) {
+            let cleared = await confirmComposerCleared(expected: body)
+            if hatchFired {
+                // Delivering the deep link to a hidden WhatsApp can still
+                // activate it asynchronously near the end of the send. Give
+                // the user their app back one more time after verification.
+                waitOptions.sleep(1.0)
+                WhatsAppAccessibility.restoreFrontmostIfWhatsApp(previous: previousFrontmost)
+            }
+            if cleared {
                 log("VERIFY: composer cleared; message submitted")
                 return .sentVerified
             }
@@ -268,12 +281,23 @@ final class WhatsAppSender {
     }
 
     /// Waits (bounded) for the WhatsApp process to exist after the app launch.
-    /// A cold launch can take several seconds; this caps it.
+    /// A cold launch on this machine was measured at ~40 s, so this cap is
+    /// generous; the wait pumps the run loop, so NSWorkspace stays live.
     private func waitForWhatsAppProcess(seconds: TimeInterval) {
         let start = waitOptions.now()
         while waitOptions.now() - start < seconds {
             if probe.appIsRunning() { return }
-            waitOptions.sleep(0.1)
+            waitOptions.sleep(0.2)
+        }
+    }
+
+    /// Waits (bounded) for the first WhatsApp window to exist, so the hide
+    /// that follows minimizes a real window rather than racing its creation.
+    private func waitForWhatsAppWindow(seconds: TimeInterval) {
+        let start = waitOptions.now()
+        while waitOptions.now() - start < seconds {
+            if probe.hasWindow() { return }
+            waitOptions.sleep(0.2)
         }
     }
 

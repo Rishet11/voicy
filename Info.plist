@@ -34,6 +34,8 @@
 	<string>Voicy reads your contacts so it can match the name you speak to the right WhatsApp number. Contacts never leave your Mac.</string>
 	<key>NSInputMonitoringUsageDescription</key>
 	<string>Voicy watches for your push-to-talk key so dictation starts without clicking the menu bar. It looks only for that one key combination, only while Voicy is running, and keystrokes are never recorded or stored.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Voicy asks WhatsApp to reopen its window in the background so confirmed messages can send without changing your active app.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2026 Rishet Mehra. MIT licensed.</string>
 </dict>

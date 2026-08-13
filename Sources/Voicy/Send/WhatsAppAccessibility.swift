@@ -43,6 +43,45 @@ enum WhatsAppAccessibility {
         return app.bundleIdentifier == mainBundleIdentifier
     }
 
+    /// Asks a running WhatsApp process to reopen its main window, matching a
+    /// Dock click without activating the app. This is needed because a
+    /// windowless WhatsApp does not expose a composer until it receives this
+    /// Apple Event.
+    static func sendReopenEvent(toPID pid: pid_t) -> Bool {
+        guard isWhatsApp(pid: pid) else { return false }
+        let target = NSAppleEventDescriptor(processIdentifier: pid)
+        let event = NSAppleEventDescriptor(eventClass: AEEventClass(kCoreEventClass),
+                                           eventID: AEEventID(kAEReopenApplication),
+                                           targetDescriptor: target,
+                                           returnID: AEReturnID(kAutoGenerateReturnID),
+                                           transactionID: AETransactionID(kAnyTransactionID))
+        do {
+            // An empty option set is the no-reply send mode. Waiting for a
+            // reply would make a background reopen depend on WhatsApp's UI.
+            try event.sendEvent(options: [], timeout: 2.0)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// Uses an advertised Accessibility action to request a window without
+    /// activating WhatsApp. This is a fallback for app versions that do not
+    /// handle the reopen Apple Event.
+    static func requestWindowWithoutActivation() -> Bool {
+        guard let pid = whatsAppPID() else { return false }
+        let app = AXUIElementCreateApplication(pid)
+        var actions: CFArray?
+        guard AXUIElementCopyActionNames(app, &actions) == .success,
+              let names = actions as? [String] else { return false }
+        for action in names where action.localizedCaseInsensitiveContains("reopen")
+            || action.localizedCaseInsensitiveContains("show")
+            || action == (kAXRaiseAction as String) {
+            if AXUIElementPerformAction(app, action as CFString) == .success { return true }
+        }
+        return false
+    }
+
     // MARK: - Window discovery (background-safe, PID-based)
 
     /// All windows WhatsApp exposes through Accessibility, in list order. When
@@ -198,6 +237,12 @@ enum WhatsAppAccessibility {
         guard let pid = whatsAppPID(),
               let app = NSRunningApplication(processIdentifier: pid) else { return }
         app.hide()
+    }
+
+    static func unhideWhatsAppIfRunning() {
+        guard let pid = whatsAppPID(),
+              let app = NSRunningApplication(processIdentifier: pid) else { return }
+        app.unhide()
     }
 
     // MARK: - Tree walking (bounded)
