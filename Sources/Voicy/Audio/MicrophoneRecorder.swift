@@ -17,6 +17,12 @@ final class MicrophoneRecorder {
     private var converter: AVAudioConverter?
     private var targetFormat: AVAudioFormat?
     private var pcmSamples: [Float] = []
+    private var configurationObserver: NSObjectProtocol?
+
+    /// Set when AVAudioEngine reported the input device changing while capture was
+    /// running. The pipeline reads it after `stop()` and aborts with a named reason
+    /// rather than handing a truncated recording to the recognizer.
+    private(set) var inputDeviceChangedDuringCapture = false
 
     /// Delivers each converted capture chunk while recording.
     var onSamples: (@Sendable ([Float]) -> Void)?
@@ -156,6 +162,7 @@ final class MicrophoneRecorder {
 
         pcmSamples = []
         firstBufferAt = nil
+        inputDeviceChangedDuringCapture = false
 
         let converter = self.converter
         let target = self.targetFormat
@@ -167,6 +174,8 @@ final class MicrophoneRecorder {
             self.convertAndAppend(buffer, converter: converter, targetFormat: target)
         }
 
+        observeConfigurationChanges()
+
         engine.prepare()
         firstSampleHost = nil
         startedAtHost = mach_absolute_time()
@@ -175,6 +184,34 @@ final class MicrophoneRecorder {
             try engine.start()
         } catch {
             throw RecordError.engineStartFailed
+        }
+    }
+
+    /// Watches for the input device changing underneath a running capture.
+    ///
+    /// When the user unplugs the microphone, switches input in System Settings, or
+    /// closes and reopens the lid on a docked Mac, AVAudioEngine posts a
+    /// configuration change and tears the input node's format out from under the
+    /// installed tap. Nothing was listening for that, so the tap simply stopped
+    /// delivering buffers: capture continued to look healthy, `stop()` returned
+    /// whatever had been collected before the change, and the user got either a
+    /// truncated transcript or "no speech was recognised", with no indication that
+    /// their microphone had gone away.
+    ///
+    /// This does not try to rebuild the graph mid-utterance. Restarting capture
+    /// halfway through a sentence would splice two different devices into one
+    /// recording and silently change what the user appears to have said. It
+    /// records the fact so the pipeline can abort with a named reason.
+    private func observeConfigurationChanges() {
+        guard configurationObserver == nil else { return }
+        configurationObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: engine,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self, self.engine.isRunning else { return }
+            self.inputDeviceChangedDuringCapture = true
+            print("[voicy] audio: the input device changed during capture")
         }
     }
 

@@ -122,6 +122,12 @@ final class Pipeline {
     private var carbonHotkey: CarbonHotkey?
     private let modifierHotkey = PushToTalkHotkey()
     private var levelTimer: Timer?
+
+    /// Shortest hold that can plausibly contain a spoken word. Below this the
+    /// press is treated as a tap and reported as `holdTooShort`. 150 ms is under
+    /// the length of the shortest useful utterance and well above an accidental
+    /// key repeat.
+    static let minimumHoldSeconds: TimeInterval = 0.15
     private var liveSession: AnyObject?
     private var liveStart: Task<Void, Never>?
     private var pendingSpeechChunks: [[Float]] = []
@@ -295,8 +301,26 @@ final class Pipeline {
     private func stopRecording() {
         guard recorder.isRunning else { return }
         stopLevelMeter()
+        let heldFor = recorder.startedAt.map { Date().timeIntervalSince($0) }
+        let deviceChanged = recorder.inputDeviceChangedDuringCapture
         let pcm = recorder.stop()
         recordingIndicator.hide()
+        // The microphone was unplugged or switched mid utterance. Whatever is in
+        // the buffer is a fragment, so it is not transcribed.
+        if deviceChanged {
+            cancelLiveSession()
+            present(failure: .inputDeviceChangedDuringCapture)
+            return
+        }
+        // A tap rather than a hold. Reported as its own thing: below this the
+        // capture is too short to contain a word, and both of the failures it
+        // would otherwise fall into ("no samples", "no speech recognised") point
+        // the user at the microphone instead of at how they pressed the key.
+        if let heldFor, heldFor < Self.minimumHoldSeconds {
+            cancelLiveSession()
+            present(failure: .holdTooShort(milliseconds: Int((heldFor * 1000).rounded())))
+            return
+        }
         if let failure = permissionFailure() {
             cancelLiveSession()
             present(failure: failure)

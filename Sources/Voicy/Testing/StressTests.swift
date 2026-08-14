@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 // MARK: - Deterministic stress checks
@@ -136,6 +137,94 @@ func runStressTests(quiet: Bool) -> Int {
         results.append(CaseResult(name: "duplicate contact names", status: "FAIL",
                                   detail: "duplicates disappeared instead of asking"))
     }
+
+    // MARK: Named failures that used to be misreported
+
+    // C2: a tap rather than a hold used to surface as "no speech was recognised"
+    // or "the device delivered zero samples", both of which point the user at a
+    // microphone problem that does not exist.
+    let tooShort = PipelineFailure.holdTooShort(milliseconds: 40).description
+    if tooShort.contains("40 ms") && tooShort.lowercased().contains("hold")
+        && tooShort != PipelineFailure.noSpeechDetected.description {
+        pass("short tap is named", "reports the real hold duration and what to do instead")
+    } else {
+        results.append(CaseResult(name: "short tap is named", status: "FAIL",
+                                  detail: "a short tap is not distinguishable from silence"))
+    }
+
+    // C7 and F6: the microphone changing mid utterance used to leave the tap
+    // silently dead, so the user got a truncated transcript or "no speech".
+    let deviceChanged = PipelineFailure.inputDeviceChangedDuringCapture.description
+    if deviceChanged.lowercased().contains("microphone changed")
+        && deviceChanged != PipelineFailure.noSpeechDetected.description
+        && deviceChanged != PipelineFailure.microphonePermissionDenied.description {
+        pass("mid-recording device change is named",
+             "distinct from silence and from a permission failure")
+    } else {
+        results.append(CaseResult(name: "mid-recording device change is named", status: "FAIL",
+                                  detail: "a device change is not reported as its own cause"))
+    }
+
+    // A-matrix: a readiness failure must carry the stage that failed through to
+    // the user, not collapse into one generic line.
+    let notReady = PipelineFailure.whatsappNotReady(
+        reason: WhatsAppComposeWaiter.Failure.composerHasDraft.reason).description
+    if notReady.contains("unsent draft") && notReady.contains("nothing was sent") {
+        pass("send readiness failures name their stage",
+             "the specific cause reaches the user, and it says nothing was sent")
+    } else {
+        results.append(CaseResult(name: "send readiness failures name their stage", status: "FAIL",
+                                  detail: "the specific readiness cause is dropped"))
+    }
+
+    // D2: a contact with no phone number must be findable by name so the refusal
+    // can name the real problem. Dropping such contacts from the index made
+    // `recipientHasNoPhoneNumber` unreachable and produced "no contact matched",
+    // which reads as "I misheard you".
+    let phoneless = Contact(identifier: "phoneless-1", givenName: "Marguerite",
+                            familyName: "Okonkwo", nickname: "", organizationName: "", phones: [])
+    switch ContactResolver().resolve(spoken: "Marguerite Okonkwo",
+                                     contacts: [phoneless], aliases: [:]) {
+    case .resolved(let contact) where contact.preferredE164 == nil:
+        pass("phone-less contact is findable",
+             "resolves by name, then refuses for the real reason: " +
+             PipelineFailure.recipientHasNoPhoneNumber.description)
+    case .resolved:
+        results.append(CaseResult(name: "phone-less contact is findable", status: "FAIL",
+                                  detail: "a phone-less contact somehow produced a number"))
+    case .ambiguous, .notFound:
+        results.append(CaseResult(name: "phone-less contact is findable", status: "FAIL",
+                                  detail: "a phone-less contact is invisible, so the refusal cannot name the cause"))
+    }
+
+    // F1: panel placement must follow the user, not whichever screen happens to
+    // hold another app's key window.
+    // NSScreen is not Sendable, so the comparison happens entirely on the main
+    // actor and only a verdict crosses back out.
+    enum ScreenVerdict { case matchesPointer, wrongScreen, noScreens }
+    let screenVerdict: ScreenVerdict = MainActor.assumeIsolated {
+        guard let active = ActiveScreen.current else { return .noScreens }
+        let mouse = NSEvent.mouseLocation
+        guard let underMouse = NSScreen.screens.first(where: { $0.frame.contains(mouse) }) else {
+            // The pointer is off every screen, so there is nothing to compare
+            // against and the documented fallback is in use.
+            return .matchesPointer
+        }
+        return underMouse === active ? .matchesPointer : .wrongScreen
+    }
+    switch screenVerdict {
+    case .matchesPointer:
+        pass("panels follow the active screen",
+             "the chosen screen is the one under the pointer, not NSScreen.main")
+    case .wrongScreen:
+        results.append(CaseResult(name: "panels follow the active screen", status: "FAIL",
+                                  detail: "the chosen screen is not the one under the pointer"))
+    case .noScreens:
+        skip("panels follow the active screen", "macOS reports no attached screens in this context")
+    }
+
+    skip("confirm card over a full screen app",
+         "the panel sets .fullScreenAuxiliary, but whether it draws over a full screen Space needs a person with an app in full screen")
 
     // MARK: Recording pill level meter
     //

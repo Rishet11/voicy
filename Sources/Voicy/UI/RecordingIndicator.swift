@@ -240,7 +240,9 @@ public final class RecordingIndicatorController {
     public var isVisible: Bool { panel.isVisible }
 
     private func positionTopCenter() {
-        guard let screen = NSScreen.main else { return }
+        // The screen the user is actually on, not the one holding some other
+        // app's key window. See ActiveScreen.
+        guard let screen = ActiveScreen.current else { return }
         let frame = screen.visibleFrame
         let size = panel.frame.size
         let x = frame.midX - size.width / 2

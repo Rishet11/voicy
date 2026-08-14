@@ -50,7 +50,13 @@ public final class ConfirmPanelController {
                             backing: .buffered,
                             defer: false)
         panel.level = .floating
-        panel.collectionBehavior = [.canJoinAllSpaces]
+        // `.fullScreenAuxiliary` is required, not decorative. Without it this
+        // panel cannot join a full screen Space, so a user who finishes speaking
+        // inside a full screen app sees the recording pill (which does set the
+        // flag) and then no confirm card at all. Since the card is mandatory
+        // before any send, that silently makes the whole app unusable in full
+        // screen.
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
@@ -209,7 +215,8 @@ public final class ConfirmPanelController {
     }
 
     private func positionCentered() {
-        guard let screen = NSScreen.main else { return }
+        // The screen the user is actually on. See ActiveScreen.
+        guard let screen = ActiveScreen.current else { return }
         let frame = screen.visibleFrame
         let size = panel.frame.size
         let x = frame.midX - size.width / 2

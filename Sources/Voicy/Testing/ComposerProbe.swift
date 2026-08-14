@@ -1,5 +1,7 @@
 import AppKit
 import Foundation
+import ApplicationServices
+import CoreGraphics
 
 // MARK: - Live composer diagnostic
 //
@@ -63,7 +65,7 @@ enum ComposerProbeResolver {
 @MainActor
 func runComposerProbeIfRequested() {
     let args = CommandLine.arguments
-    let flags = ["--probe-composer", "--probe-composer-set", "--probe-composer-link", "--probe-window"]
+    let flags = ["--probe-composer", "--probe-composer-set", "--probe-composer-link", "--probe-window", "--probe-ax"]
     guard args.contains(where: { flags.contains($0) }) else { return }
 
     // Contact loading is async, so run the body in a Task and pump the main run
@@ -98,6 +100,77 @@ private func composerProbeBody(args: [String]) async {
     let initial = WhatsAppAccessibility.composerTextValue()
     print("[probe] composer exposed: \(initial != nil), length: \(initial?.count ?? -1)")
     print("[probe] send button present: \(WhatsAppAccessibility.whatsAppSendButtonExists())")
+
+    if args.contains("--probe-ax") {
+        let locked = (CGSessionCopyCurrentDictionary() as NSDictionary?)?["CGSSessionScreenIsLocked"]
+        print("[probe] screen locked: \(locked ?? "no")")
+        guard let pid = WhatsAppAccessibility.whatsAppPID() else {
+            print("[probe] WhatsApp is not running")
+            return
+        }
+        let app = AXUIElementCreateApplication(pid)
+
+        var windows: CFTypeRef?
+        let windowsErr = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &windows)
+        let windowList = windows as? [AXUIElement]
+        print("[probe] AXWindows error=\(windowsErr.rawValue) isArray=\(windowList != nil) count=\(windowList?.count ?? -1)")
+
+        var focused: CFTypeRef?
+        let focusedErr = AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &focused)
+        print("[probe] AXFocusedWindow error=\(focusedErr.rawValue) present=\(focused != nil)")
+
+        var attributes: CFArray?
+        if AXUIElementCopyAttributeNames(app, &attributes) == .success,
+           let names = attributes as? [String] {
+            print("[probe] app AX attributes: \(names.sorted().joined(separator: ", "))")
+        } else {
+            print("[probe] app AX attributes: could not be read")
+        }
+
+        // Electron and some Catalyst apps expose no AX tree at all until a client
+        // sets AXManualAccessibility on the application element. If that is what is
+        // happening, this flips the whole tree on.
+        let setErr = AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+        print("[probe] set AXManualAccessibility error=\(setErr.rawValue)")
+        try? await Task.sleep(nanoseconds: 1_500_000_000)
+
+        var windows2: CFTypeRef?
+        let windowsErr2 = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &windows2)
+        let windowList2 = windows2 as? [AXUIElement]
+        print("[probe] after manual AX: AXWindows error=\(windowsErr2.rawValue) count=\(windowList2?.count ?? -1)")
+        print("[probe] after manual AX: hasWindow=\(WhatsAppAccessibility.whatsAppHasWindow()) composerExposed=\(WhatsAppAccessibility.composerTextValue() != nil)")
+
+        // How deep and how wide is the tree really, and does the composer sit
+        // below the depth limit the production walker uses?
+        var focusedWindow: CFTypeRef?
+        if AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &focusedWindow) == .success,
+           let ref = focusedWindow {
+            let window = unsafeDowncast(ref as AnyObject, to: AXUIElement.self)
+            var roleCounts: [String: Int] = [:]
+            var maxDepth = 0
+            var total = 0
+            func walk(_ element: AXUIElement, depth: Int) {
+                guard depth <= 30, total < 20_000 else { return }
+                total += 1
+                maxDepth = max(maxDepth, depth)
+                var role: CFTypeRef?
+                if AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &role) == .success,
+                   let r = role as? String {
+                    roleCounts[r, default: 0] += 1
+                    if r == (kAXTextAreaRole as String) || r == (kAXTextFieldRole as String) {
+                        print("[probe]   text input found at depth \(depth), role \(r)")
+                    }
+                }
+                var children: CFTypeRef?
+                guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &children) == .success,
+                      let list = children as? [AXUIElement] else { return }
+                for child in list { walk(child, depth: depth + 1) }
+            }
+            walk(window, depth: 0)
+            print("[probe] focused window subtree: \(total) elements, max depth \(maxDepth)")
+            print("[probe] roles: \(roleCounts.sorted { $0.value > $1.value }.prefix(12).map { "\($0.key)=\($0.value)" }.joined(separator: ", "))")
+        }
+    }
 
     if args.contains("--probe-window") {
         if let pid = WhatsAppAccessibility.whatsAppPID(),

@@ -80,7 +80,28 @@ public final class ContactIndex {
             let label = CNLabeledValue<CNPhoneNumber>.localizedString(forLabel: pn.label ?? "")
             return ContactPhone(label: label, e164: e164)
         }
-        guard !phones.isEmpty else { return nil }
+        // A contact with no usable phone number is KEPT, deliberately.
+        //
+        // Dropping it here meant the person did not exist as far as Voicy was
+        // concerned, so saying their name produced "no contact matched, say the
+        // contact's full name and try again". That reads as "I misheard you" when
+        // the truth is "I heard you perfectly, that person has no phone number",
+        // and it sent the user off to re-pronounce a name that was never the
+        // problem. It also made `PipelineFailure.recipientHasNoPhoneNumber`
+        // unreachable in the live app: every contact in the index was guaranteed
+        // to have a number, so the guard that produces that message could never
+        // fire.
+        //
+        // Keeping them means the resolver can match the name and the send path can
+        // refuse for the real reason. `Contact.preferredE164` is already nil for
+        // these, and every send path guards on it, so no phone-less contact can
+        // reach an actual send.
+        //
+        // An entry with no name at all is still dropped: it cannot be matched by
+        // a spoken name, so keeping it would only add noise to the match scores.
+        let hasName = ![cn.givenName, cn.familyName, cn.nickname, cn.organizationName]
+            .allSatisfy(\.isEmpty)
+        guard hasName else { return nil }
         return Contact(identifier: cn.identifier,
                        givenName: cn.givenName,
                        familyName: cn.familyName,

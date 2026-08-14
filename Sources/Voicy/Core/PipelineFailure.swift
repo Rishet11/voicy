@@ -18,6 +18,16 @@ enum PipelineFailure: Error, Equatable, CustomStringConvertible {
     case noInputDevice
     case deviceDeliveredZeroSamples
     case noSpeechDetected
+    /// The hotkey was tapped rather than held. Distinct from silence on purpose:
+    /// "hold it while you speak" is the fix, and telling a user who tapped the key
+    /// that no speech was recognised sends them looking for a microphone problem
+    /// that does not exist.
+    case holdTooShort(milliseconds: Int)
+    /// The input device changed underneath a running capture, so the recording is
+    /// a fragment of one device plus nothing. Named rather than silently
+    /// transcribed: half an utterance transcribed confidently is worse than an
+    /// abort that says what happened.
+    case inputDeviceChangedDuringCapture
     case transcriptionFailed
     case speechModelUnavailable(locale: String)
     case noRecipient
@@ -69,6 +79,10 @@ enum PipelineFailure: Error, Equatable, CustomStringConvertible {
             return "RecipientAmbiguous: more than one contact matched. Choose the intended contact."
         case .recipientHasNoPhoneNumber:
             return "RecipientHasNoPhoneNumber: add a phone number to this contact in Contacts, then try again."
+        case .holdTooShort(let milliseconds):
+            return "HoldTooShort: the key was held for only \(milliseconds) ms. Hold Ctrl+Space down while you speak, then release."
+        case .inputDeviceChangedDuringCapture:
+            return "InputDeviceChanged: the microphone changed while you were speaking, so nothing was transcribed. Check your input device, then try again."
         case .whatsappNotInstalled:
             return "WhatsAppNotInstalled: install WhatsApp for Mac, then try again."
         case .whatsappUnavailable:

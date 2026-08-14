@@ -92,13 +92,40 @@ enum WhatsAppAccessibility {
         let app = AXUIElementCreateApplication(pid)
         var windows: CFTypeRef?
         if AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &windows) == .success,
-           let list = windows as? [AXUIElement] {
+           let list = windows as? [AXUIElement],
+           // The emptiness check is the whole point. Measured on this machine:
+           // WhatsApp answers AXWindows with kAXErrorSuccess and an array of
+           // ZERO windows while AXFocusedWindow is present and usable. The old
+           // code accepted that empty array and returned it, so the fallback
+           // below was unreachable and every probe concluded "WhatsApp has no
+           // visible window yet". That single line is what made the background
+           // send fail on a cold launch and on a window closed to the tray: the
+           // window was there, Voicy just asked the one question WhatsApp
+           // answers badly and believed the answer.
+           !list.isEmpty {
             return list
         }
-        var focused: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &focused) == .success,
-              let focusedRef = focused else { return [] }
-        return [(focusedRef as! AXUIElement)]
+        // Some app versions expose only the focused or main window while
+        // backgrounded, so both are tried.
+        //
+        // Each candidate is checked to actually BE a window. That check is not
+        // paranoia: measured on this machine with the screen locked, WhatsApp
+        // answers AXFocusedWindow with its menu bar element, whose subtree is 280
+        // menu items and no window at all. Accepting it would make
+        // `whatsAppHasWindow()` report true when there is no window, which turns
+        // an accurate "WhatsApp has no visible window yet" into a misleading "no
+        // compose field was found" and stops the sender's escape hatch from
+        // firing at all.
+        var result: [AXUIElement] = []
+        for attribute in [kAXFocusedWindowAttribute, kAXMainWindowAttribute] {
+            var value: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(app, attribute as CFString, &value) == .success,
+                  let ref = value else { continue }
+            let element = unsafeDowncast(ref as AnyObject, to: AXUIElement.self)
+            guard role(of: element) == (kAXWindowRole as String) else { continue }
+            if !result.contains(where: { CFEqual($0, element) }) { result.append(element) }
+        }
+        return result
     }
 
     /// True when WhatsApp is running AND exposes at least one window. A running
