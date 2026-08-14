@@ -6,6 +6,18 @@
 <meta name="color-scheme" content="light">
 <title>Voicy - Just say it. It's sent.</title>
 <meta name="description" content="Hold a key, say who it's for and what to say. Your words appear where you send them. Nothing leaves your device.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://rishet11.github.io/voicy/">
+<meta property="og:title" content="Voicy — Just say it. It&apos;s sent.">
+<meta property="og:description" content="Hold Space, say &apos;message Pulkit I am on my way&apos;. We find the right chat, you confirm, it&apos;s sent. Voice stays on your Mac. 2 permissions only.">
+<meta property="og:image" content="https://rishet11.github.io/voicy/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Voicy — Just say it. Hold Space, say who and what, confirm, sent.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Voicy — Just say it. It&apos;s sent.">
+<meta name="twitter:description" content="Hold Space, say who it&apos;s for and what to say. We find the chat, you press Enter. Never leaves your Mac.">
+<meta name="twitter:image" content="https://rishet11.github.io/voicy/og-image.png">
 <link rel="stylesheet" href="styles.css?v=orbit3">
 </head>
 <body>
@@ -31,42 +43,99 @@
       <h1 class="hero-h"><span class="w1">Just</span> <span class="w2">say</span> <span class="w3">it.</span></h1>
       <p class="hero-sub">Hold Space. Say "message Pulkit I am on my way". Your words appear ready to send. You stay where you were.</p>
 
-      <div class="stage" aria-label="Voice demo, hold to talk and your words appear">
-        <!-- floating chips that show universal, WhatsApp is one of many, not the only -->
+      <div class="stage flow-stage" id="stage" aria-label="Voice demo: message typed, ask permission, send">
+        <!-- macOS menu bar hint -->
+        <div class="mac-bar" aria-hidden="true">
+          <span class="mac-dot red"></span><span class="mac-dot yellow"></span><span class="mac-dot green"></span>
+          <span class="mac-title">Voicy — Hold Ctrl+Space</span>
+          <span class="mac-mic">🎤</span>
+        </div>
+        <!-- WhatsApp window in background (faint) -->
+        <div class="wa-bg" aria-hidden="true">
+          <div class="wa-head"><span>WhatsApp</span><span class="wa-search">Search</span></div>
+          <div class="wa-list">
+            <div class="wa-row active"><span class="wa-ava">P</span><span>Pulkit <small>tap to chat</small></span></div>
+            <div class="wa-row"><span class="wa-ava">M</span><span>Mom</span></div>
+            <div class="wa-row"><span class="wa-ava">R</span><span>Riya</span></div>
+          </div>
+          <div class="wa-composer">Type a message…</div>
+        </div>
+        <!-- floating chips -->
         <div class="chips" aria-hidden="true">
           <span class="chip c1">WhatsApp</span>
           <span class="chip c2">Slack</span>
           <span class="chip c3">Gmail</span>
         </div>
 
-        <!-- card that types -->
-        <div class="bubble" id="bubble">
-          <div class="bubble-top">
-            <span class="ava">P</span>
-            <div>
-              <p class="to">To <strong>Pulkit</strong></p>
-              <p class="where">Where you were typing</p>
+        <!-- animated flow viewport -->
+        <div class="flow-viewport">
+          <div class="bubble" id="bubble">
+            <div class="bubble-top">
+              <span class="ava" id="ava">P</span>
+              <div>
+                <p class="to">To <strong id="to-name">Pulkit</strong></p>
+                <p class="where" id="bubble-where">Where you were typing</p>
+              </div>
+              <span class="blink" aria-hidden="true"></span>
+              <span class="bubble-badge" id="bubble-badge">listening</span>
             </div>
-            <span class="blink" aria-hidden="true"></span>
+            <p class="typed"><span id="typed-text"></span><span class="cursor">|</span></p>
+            <p class="keys"><kbd>↵</kbd> send · <kbd>esc</kbd> cancel</p>
           </div>
-          <p class="typed"><span id="typed-text"></span><span class="cursor">|</span></p>
-          <p class="keys"><kbd>↵</kbd> send · <kbd>esc</kbd> cancel</p>
+          <div class="permission" id="permission" aria-hidden="true">
+            <div class="perm-head">
+              <span class="perm-icon">?</span>
+              <p>Send this?</p>
+              <span class="perm-app">→ WhatsApp</span>
+            </div>
+            <div class="perm-body">
+              <span class="perm-ava">P</span>
+              <div>
+                <p class="perm-to">Pulkit <span class="perm-phone">+91 98*** 4*20</span></p>
+                <p class="perm-msg">“<span id="perm-msg">I'm on my way</span>”</p>
+                <p class="perm-why">Found by sound — even if you said “Paul Kit”</p>
+              </div>
+            </div>
+            <div class="perm-acts">
+              <span class="perm-btn ghost" id="perm-cancel"><kbd>esc</kbd> Cancel</span>
+              <span class="perm-btn solid" id="perm-send"><kbd>↵</kbd> Send</span>
+            </div>
+            <div class="perm-pointer"></div>
+          </div>
+          <div class="sent" id="sent" aria-hidden="true">
+            <div class="sent-check">✓</div>
+            <p class="sent-title">Sent to <strong>Pulkit</strong></p>
+            <p class="sent-sub">WhatsApp · just now</p>
+            <div class="sent-confetti" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+          </div>
+          <div class="fly-msg" id="fly-msg" aria-hidden="true">I'm on my way</div>
         </div>
-
-        <!-- orb -->
-        <button class="orb" type="button" aria-label="Hold Space to talk">
+        <button class="orb" type="button" aria-label="Hold Space to talk" id="orb">
           <span class="orb-ring"></span>
           <span class="orb-ring r2"></span>
-          <span class="orb-core"><span class="mic" aria-hidden="true">●</span> Hold Space</span>
+          <span class="orb-core" id="orb-core"><span class="mic" aria-hidden="true">●</span> <span id="orb-label">Hold Space</span></span>
         </button>
-
-        <!-- listening indicator, voice not music -->
-        <div class="listen" aria-hidden="true">
-          <span></span><span></span><span></span>
-          <p>Listening</p>
+        <div class="flow-steps" aria-hidden="true" id="flow-steps">
+          <span class="fs active" data-step="1"><i></i> you speak</span>
+          <span class="fs" data-step="2"><i></i> we find</span>
+          <span class="fs" data-step="3"><i></i> you confirm</span>
+          <span class="fs" data-step="4"><i></i> sent ✓</span>
         </div>
-
-        <p class="stage-cap">Release. Glance. Press Enter. You never leave your app.</p>
+        <div class="listen" aria-hidden="true" id="listen">
+          <span></span><span></span><span></span>
+          <p id="listen-label">Listening</p>
+        </div>
+        <p class="stage-cap" id="stage-cap">You speak. We find the right person. You confirm. Sent — you never left your app.</p>
+        <div class="trust-line" aria-label="Why this is not dictation">
+          <span><strong>Finds the right Pulkit</strong> — not just text</span>
+          <span class="dot">·</span>
+          <span><strong>Remembers</strong> “Paul Kit” → Pulkit next time</span>
+          <span class="dot">·</span>
+          <span><strong>Stays on your Mac</strong> — no cloud</span>
+          <span class="dot">·</span>
+          <span><strong>2 permissions</strong> only</span>
+        </div>
+        <p class="siri-note">Siri writes words. Voicy opens the right chat in WhatsApp and waits for you to press Enter.</p>
       </div>
 
       <div class="hero-acts">
@@ -272,28 +341,155 @@ open dist/Voicy.app">Copy</button>
 
 <script>
 (function(){
+  // --- full flow: 1 message → 2 ask permission → 3 send → 4 sent (loop) ---
+  var stage = document.getElementById('stage');
   var t = document.getElementById('typed-text');
-  var toEl = document.querySelector('.to strong');
-  var ava = document.querySelector('.ava');
+  var toEl = document.getElementById('to-name');
+  var ava = document.getElementById('ava');
+  var permMsg = document.getElementById('perm-msg');
+  var perm = document.getElementById('permission');
+  var sent = document.getElementById('sent');
+  var fly = document.getElementById('fly-msg');
+  var orbLabel = document.getElementById('orb-label');
+  var orbCore = document.getElementById('orb-core');
+  var listenLabel = document.getElementById('listen-label');
+  var stageCap = document.getElementById('stage-cap');
+  var bubbleWhere = document.getElementById('bubble-where');
+  var bubbleBadge = document.getElementById('bubble-badge');
+  var permSend = document.getElementById('perm-send');
+  var steps = document.querySelectorAll('.fs');
+  var bubble = document.getElementById('bubble');
   var phrases = ["I'm on my way","I'll be late, leaving now","the file is ready","I'm here, come down"];
-  var names = ["Pulkit","Pulkit","Mom","Pulkit"];
+  var names = ["Pulkit","Pulkit","Mom","Riya"];
   var avas = ["P","P","M","R"];
-  var pi=0, ci=0, del=false, el=t;
-  function tick(){
-    var cur = phrases[pi];
-    if(!del){
-      el.textContent = cur.slice(0, ci+1);
-      ci++;
-      if(ci===cur.length){ del=true; setTimeout(tick, 1400); return; }
-      setTimeout(tick, 70);
-    } else {
-      el.textContent = cur.slice(0, ci-1);
-      ci--;
-      if(ci===0){ del=false; pi=(pi+1)%phrases.length; if(toEl) toEl.textContent = names[pi]; if(ava) ava.textContent = avas[pi]; setTimeout(tick, 400); return; }
-      setTimeout(tick, 32);
-    }
+  var pi = 0;
+  var state = 0; // 0 typing, 1 ask, 2 sending, 3 sent
+  function setStep(n){
+    steps.forEach(function(s){ s.classList.toggle('active', parseInt(s.dataset.step)===n); s.classList.toggle('done', parseInt(s.dataset.step)<n); });
+    stage.setAttribute('data-state', n);
   }
-  tick();
+  function setCap(s){ if(stageCap) stageCap.textContent = s; }
+  function typePhrase(idx, cb){
+    var cur = phrases[idx];
+    var ci = 0;
+    var el = t;
+    el.textContent = "";
+    if(toEl) toEl.textContent = names[idx];
+    if(ava) ava.textContent = avas[idx];
+    var permAva = document.querySelector('.perm-ava');
+    if(permAva) permAva.textContent = avas[idx];
+    var permTo = document.querySelector('.perm-to');
+    if(permTo) permTo.textContent = names[idx];
+    if(permMsg) permMsg.textContent = cur;
+    if(fly) fly.textContent = cur;
+    var sentTitle = document.querySelector('.sent-title');
+    if(sentTitle) sentTitle.innerHTML = 'Sent to <strong>'+names[idx]+'</strong>';
+    bubbleWhere.textContent = "Where you were typing";
+    bubbleBadge.textContent = "listening";
+    bubbleBadge.className = "bubble-badge listening";
+    listenLabel.textContent = "Listening";
+    orbLabel.textContent = "Hold Space";
+    orbCore.classList.remove('sending','sent');
+    setCap("You speak. We type where you were.");
+    setStep(1);
+    stage.classList.remove('state-ask','state-sending','state-sent');
+    stage.classList.add('state-typing');
+    perm.classList.remove('show');
+    sent.classList.remove('show');
+    bubble.classList.remove('sending','sent-out');
+    fly.classList.remove('fly');
+    function tick(){
+      if(ci < cur.length){
+        el.textContent = cur.slice(0, ci+1);
+        ci++;
+        setTimeout(tick, 62 + Math.random()*28);
+      } else {
+        setTimeout(cb, 650);
+      }
+    }
+    tick();
+  }
+  function showAsk(cb){
+    stage.classList.remove('state-typing');
+    stage.classList.add('state-ask');
+    setStep(2);
+    bubbleWhere.textContent = "Ready to send";
+    bubbleBadge.textContent = "needs ok";
+    bubbleBadge.className = "bubble-badge ask";
+    listenLabel.textContent = "Asking you";
+    orbLabel.textContent = "Release to review";
+    setCap("We found Pulkit. Check, then send.");
+    perm.classList.add('show');
+    // pulse the Send button hint
+    permSend.classList.add('pulse');
+    setTimeout(function(){ permSend.classList.remove('pulse'); }, 900);
+    setTimeout(cb, 1700);
+  }
+  function doSend(cb){
+    stage.classList.remove('state-ask');
+    stage.classList.add('state-sending');
+    setStep(3);
+    perm.classList.remove('show');
+    bubble.classList.add('sending');
+    orbCore.classList.add('sending');
+    orbLabel.textContent = "Sending…";
+    listenLabel.textContent = "Sending";
+    bubbleBadge.textContent = "sending…";
+    bubbleBadge.className = "bubble-badge sending";
+    setCap("You pressed Enter. Sending.");
+    // fly animation
+    fly.classList.add('fly');
+    permSend.classList.add('pressed');
+    setTimeout(function(){ permSend.classList.remove('pressed'); }, 420);
+    setTimeout(function(){
+      bubble.classList.remove('sending');
+      bubble.classList.add('sent-out');
+      cb();
+    }, 820);
+  }
+  function showSent(cb){
+    stage.classList.remove('state-sending');
+    stage.classList.add('state-sent');
+    setStep(4);
+    sent.classList.add('show');
+    orbCore.classList.remove('sending');
+    orbCore.classList.add('sent');
+    orbLabel.textContent = "✓ Sent";
+    listenLabel.textContent = "Sent ✓";
+    bubbleBadge.textContent = "✓ sent";
+    bubbleBadge.className = "bubble-badge sent";
+    bubbleWhere.textContent = "Back to your work";
+    setCap("Done. You never left your app.");
+    setTimeout(cb, 1900);
+  }
+  function loop(){
+    typePhrase(pi, function(){
+      showAsk(function(){
+        doSend(function(){
+          showSent(function(){
+            // reset and next phrase
+            setTimeout(function(){
+              stage.classList.remove('state-sent','state-ask','state-sending');
+              pi = (pi+1) % phrases.length;
+              loop();
+            }, 420);
+          });
+        });
+      });
+    });
+  }
+  loop();
+  // click orb to advance manually
+  var orb = document.getElementById('orb');
+  if(orb){
+    orb.addEventListener('click', function(){
+      // jump to next state quickly
+      if(stage.classList.contains('state-typing')){
+        // skip typing
+        t.textContent = phrases[pi];
+      }
+    });
+  }
   var nums = document.querySelectorAll('.num');
   var obs = new IntersectionObserver(function(entries){
     entries.forEach(function(e){
