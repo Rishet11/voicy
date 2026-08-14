@@ -258,7 +258,12 @@ final class WhatsAppSender {
                 return .failed("WhatsApp quit during send")
             }
             log("SUBMIT \(kind == .pressedButton ? "AX press on the send button" : "Return delivered to WhatsApp's PID") after exact composer verification")
-            let cleared = await confirmComposerCleared(expected: body)
+            // A cold-launched WhatsApp is still settling when the submit
+            // lands, so give the clear a much longer window. Warm sends keep
+            // the short default and stay snappy.
+            let cleared = hatchFired
+                ? await confirmComposerCleared(expected: body, timeout: 15.0, maxAttempts: 300)
+                : await confirmComposerCleared(expected: body)
             if hatchFired {
                 // Delivering the deep link to a hidden WhatsApp can still
                 // activate it asynchronously near the end of the send. Give
@@ -314,13 +319,28 @@ final class WhatsAppSender {
     /// Waits (bounded, ~2.5 s) for the composer to clear after submission, so
     /// `sentVerified` means something the app actually observed rather than a
     /// hope. The message is never resubmitted either way.
-    private func confirmComposerCleared(expected: String) async -> Bool {
+    /// Polls for WhatsApp to clear the composer after a submit.
+    ///
+    /// The budget is state-aware. A warm WhatsApp clears within a few hundred
+    /// milliseconds, so the default stays short and the normal send feels
+    /// instant. A WhatsApp that Voicy had to launch is still restoring its
+    /// chat list while the submit lands, and the clear can arrive seconds
+    /// later. Checking it on the warm budget reported "delivery cannot be
+    /// confirmed" for messages that had in fact been sent, which is the worst
+    /// kind of wrong: the user is told to go and look, and may send twice by
+    /// hand.
+    ///
+    /// This only widens the observation window. It never assumes a clear that
+    /// was not observed, and it never resubmits.
+    private func confirmComposerCleared(expected: String,
+                                        timeout: TimeInterval = 2.5,
+                                        maxAttempts: Int = 50) async -> Bool {
         let start = waitOptions.now()
         var attempts = 0
-        while attempts < 50 {
+        while attempts < maxAttempts {
             attempts += 1
             if composeCleared(expected) { return true }
-            if waitOptions.now() - start > 2.5 { break }
+            if waitOptions.now() - start > timeout { break }
             waitOptions.sleep(0.05)
         }
         return false
