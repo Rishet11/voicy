@@ -159,6 +159,16 @@ private func composerProbeBody(args: [String]) async {
                     roleCounts[r, default: 0] += 1
                     if r == (kAXTextAreaRole as String) || r == (kAXTextFieldRole as String) {
                         print("[probe]   text input found at depth \(depth), role \(r)")
+                        // Why does composerTextValue() return nil for this?
+                        var v: CFTypeRef?
+                        let vErr = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &v)
+                        let asString = v as? String
+                        print("[probe]     AXValue error=\(vErr.rawValue) isString=\(asString != nil) length=\(asString?.count ?? -1) type=\(v == nil ? "nil" : String(describing: CFGetTypeID(v!)))")
+                        var names: CFArray?
+                        if AXUIElementCopyAttributeNames(element, &names) == .success,
+                           let list = names as? [String] {
+                            print("[probe]     attributes: \(list.sorted().joined(separator: ", "))")
+                        }
                     }
                 }
                 var children: CFTypeRef?
@@ -166,6 +176,35 @@ private func composerProbeBody(args: [String]) async {
                       let list = children as? [AXUIElement] else { return }
                 for child in list { walk(child, depth: depth + 1) }
             }
+            // What does WhatsApp actually call its buttons? The send matcher looks
+            // for the word "send" in the description, title, or identifier, and if
+            // none of them carry it the readiness check can never be satisfied.
+            func dumpButtons(_ element: AXUIElement, depth: Int) {
+                guard depth <= 20 else { return }
+                var role: CFTypeRef?
+                if AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &role) == .success,
+                   let r = role as? String, r == (kAXButtonRole as String) {
+                    func attr(_ name: String) -> String {
+                        var v: CFTypeRef?
+                        guard AXUIElementCopyAttributeValue(element, name as CFString, &v) == .success,
+                              let s = v as? String, !s.isEmpty else { return "-" }
+                        return s
+                    }
+                    let desc = attr(kAXDescriptionAttribute as String)
+                    let title = attr(kAXTitleAttribute as String)
+                    let ident = attr(kAXIdentifierAttribute as String)
+                    let help = attr(kAXHelpAttribute as String)
+                    if desc != "-" || title != "-" || ident != "-" || help != "-" {
+                        print("[probe]   button d=\(depth) desc=\"\(desc)\" title=\"\(title)\" id=\"\(ident)\" help=\"\(help)\"")
+                    }
+                }
+                var children: CFTypeRef?
+                guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &children) == .success,
+                      let list = children as? [AXUIElement] else { return }
+                for child in list { dumpButtons(child, depth: depth + 1) }
+            }
+            dumpButtons(window, depth: 0)
+
             walk(window, depth: 0)
             print("[probe] focused window subtree: \(total) elements, max depth \(maxDepth)")
             print("[probe] roles: \(roleCounts.sorted { $0.value > $1.value }.prefix(12).map { "\($0.key)=\($0.value)" }.joined(separator: ", "))")

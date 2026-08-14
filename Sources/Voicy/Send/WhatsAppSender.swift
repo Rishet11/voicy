@@ -214,8 +214,14 @@ final class WhatsAppSender {
 
         // Escape hatch: create WhatsApp's window through its Dock-equivalent
         // reopen Apple Event. Every fallback below remains non-activating.
+        // `composerNotFound` belongs in this list. It is the state a cold or
+        // tray-resident WhatsApp sits in while it restores the chat, and now that
+        // window discovery actually finds WhatsApp's window the reported cause is
+        // usually this rather than `windowNotFound`. Leaving it out meant the
+        // escape hatch stopped firing for exactly the case it exists for, and the
+        // send gave up on the short 6 s warm budget instead of the 35 s cold one.
         if case .notReady(let cause, _, _, _) = readiness,
-           cause == .appNotRunning || cause == .windowNotFound {
+           cause == .appNotRunning || cause == .windowNotFound || cause == .composerNotFound {
             log("READY-WAIT: \(cause.reason); launching WhatsApp without activation")
             guard launchApp() else {
                 log("FAIL: could not launch the WhatsApp app")

@@ -95,12 +95,17 @@ func runSendGuardTests() async -> (passed: Int, failed: Int) {
     }
 
     /// A fake clock so the bounded-wait tests take microseconds, not seconds.
-    func fastOptions(timeout: TimeInterval = 1.0, maxAttempts: Int = 200) -> WhatsAppComposeWaiter.Options {
+    /// `prefillGrace` defaults to 0 here so the deterministic tests exercise the
+    /// AX write path directly. The shipped default is nonzero, which is covered by
+    /// its own case below rather than being smuggled into every other assertion.
+    func fastOptions(timeout: TimeInterval = 1.0, maxAttempts: Int = 200,
+                     prefillGrace: TimeInterval = 0) -> WhatsAppComposeWaiter.Options {
         var clock: TimeInterval = 0
         var o = WhatsAppComposeWaiter.Options()
         o.timeout = timeout
         o.pollInterval = 0.05
         o.maxAttempts = maxAttempts
+        o.prefillGrace = prefillGrace
         o.now = { clock }
         o.sleep = { clock += $0 }
         return o
@@ -264,7 +269,12 @@ func runSendGuardTests() async -> (passed: Int, failed: Int) {
         .send(phone: firstContact, body: "hello", contactName: "Pulkit", dryRun: false)
     t.equal(stuck, .prefilledNotReady(reason: WhatsAppComposeWaiter.Failure.composerNotFound.reason),
             "an unready composer is reported with its specific cause")
-    t.equal(stuckSpy.opened, 1, "the unready path still opened the link once")
+    // A composer that never appears is the cold and tray-resident state, so it
+    // fires the escape hatch: the link is delivered once in the background and
+    // once more after the hatch has asked WhatsApp for a window. Still no submit,
+    // still a named cause, and still nothing claimed as sent.
+    t.equal(stuckSpy.opened, 2,
+            "an unready composer fires the escape hatch, so the link opens twice and never submits")
 
     let mismatchReturns = Counter()
     let mismatch = await sender(openList, spy: OpenSpy(), probe: probe(text: "different"),
@@ -359,6 +369,37 @@ func runSendGuardTests() async -> (passed: Int, failed: Int) {
             "a failed write into an empty composer aborts with a named mismatch")
     t.equal(failedReplacementReturns.value, 0, "a failed write never submits")
 
+    // The prefill grace: while it is in force, an EMPTY composer is left alone
+    // rather than written into, and the reported cause says so.
+    //
+    // This exists because an AX write does not put WhatsApp in a sendable state.
+    // Measured on a real chat: after writing the body through Accessibility, the
+    // chat bar still offered ChatBar_VoiceMessageButton and no send button, so the
+    // write produced a composer that read back correctly and could not be sent.
+    // WhatsApp's own prefill does leave a send button, so it gets first chance.
+    var graceReplacements = 0
+    let graceProbe = WhatsAppComposeWaiter.Probe(
+        isTrusted: { true }, appIsRunning: { true }, hasWindow: { true },
+        composeText: { "" },
+        sendButtonExists: { true },
+        replaceComposeText: { _ in
+            graceReplacements += 1
+            return true
+        })
+    let graceResult = WhatsAppComposeWaiter.wait(
+        probe: graceProbe, expectedText: "new confirmed body",
+        options: fastOptions(timeout: 1.0, prefillGrace: 5.0))
+    // The cause is what matters here. Elapsed milliseconds are a float and
+    // comparing them exactly makes the test fail on the last decimal place.
+    if case .notReady(let graceCause, _, _, _) = graceResult {
+        t.equal(graceCause, .composerNotPrefilled,
+                "inside the prefill grace an empty composer is reported as not prefilled")
+    } else {
+        t.equal(false, true, "inside the prefill grace the wait should not report ready")
+    }
+    t.equal(graceReplacements, 0,
+            "inside the prefill grace Voicy does not write into the composer at all")
+
     // B3: the draft is byte for byte identical to the message being sent. The
     // composer already matches the confirmed body, so nothing is overwritten and
     // exactly ONE submit is authorized. One message leaves, not two.
@@ -385,13 +426,12 @@ func runSendGuardTests() async -> (passed: Int, failed: Int) {
     t.equal(unclearedSpy.opened, 1, "the unverified path still opened the link once")
     t.equal(unclearedReturns.value, 1, "the unverified path submitted exactly once and never retried")
 
-    // A6: WhatsApp quits, or closes its window, AFTER the submit lands.
+    // A6: WhatsApp quits AFTER the submit lands.
     //
-    // The real `composerCleared` used to return true whenever the composer could
-    // not be read at all, on the theory that a vanished composer had been
-    // cleared. That turned "the app disappeared and we observed nothing" into
-    // `.sentVerified`, which is the one claim the project rules forbid outright.
-    // An unobservable composer is now not a clear.
+    // `composerCleared` requires the app and a real window to still be present
+    // before it will call anything cleared. With WhatsApp gone there is nothing to
+    // observe, so it cannot return true, and the caller reports `.sentUnverified`
+    // instead of claiming a send nobody watched happen.
     t.equal(WhatsAppAccessibility.composerCleared(expected: ""), false,
             "an empty expected body can never be verified as cleared")
     let vanishedReturns = Counter()

@@ -153,12 +153,37 @@ enum WhatsAppAccessibility {
 
     /// The current value of the chat composer (nil when the composer is not
     /// exposed yet, e.g. WhatsApp is still loading the chat).
+    /// The current value of the chat composer. Nil means the composer element is
+    /// not in the tree at all, which is a different thing from an empty composer.
+    ///
+    /// That distinction is the whole reason this function looks like this. An
+    /// EMPTY WhatsApp composer does not answer `AXValue` with an empty string. It
+    /// answers with `kAXErrorNoValue`, measured as error -25212 on a real composer
+    /// that was visibly on screen with `AXValue` listed among its attributes. The
+    /// old code treated any unsuccessful read as "no composer", so an empty
+    /// composer was reported as `composerNotFound`, and that had two effects:
+    /// the user was told "no compose field was found in any WhatsApp window" about
+    /// a window whose text box was right there, and the one legitimate write path
+    /// (fill an EMPTY composer, which is the cold launch case) could never run,
+    /// because an empty composer was never observed as empty.
     static func composerTextValue() -> String? {
         guard let composer = composerElement() else { return nil }
         var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(composer, kAXValueAttribute as CFString, &value) == .success,
-              let text = value as? String else { return nil }
-        return text
+        let error = AXUIElementCopyAttributeValue(composer, kAXValueAttribute as CFString, &value)
+        if error == .success, let text = value as? String { return text }
+        // The element exists but holds no value: that is an empty composer, not a
+        // missing one. Corroborated by the character count where it is offered, so
+        // this cannot quietly turn a failed read into a false "empty".
+        if error == .noValue || error == .attributeUnsupported {
+            var count: CFTypeRef?
+            if AXUIElementCopyAttributeValue(composer, kAXNumberOfCharactersAttribute as CFString,
+                                             &count) == .success,
+               let characters = count as? Int {
+                return characters == 0 ? "" : nil
+            }
+            return ""
+        }
+        return nil
     }
 
     /// Whether the composer no longer holds `expected`, which is the post-send
@@ -179,13 +204,29 @@ enum WhatsAppAccessibility {
     /// never observed. Cleared now means positively observed to no longer contain
     /// the body, with WhatsApp still there to be observed. Anything less is not a
     /// clear, and the caller reports `.sentUnverified` instead of inventing one.
+    /// A send the recipient confirmed as delivered still reported "delivery cannot
+    /// be confirmed", and the reason was not the length of the timeout: widening it
+    /// could never have helped. WhatsApp answers `AXValue` on an emptied composer
+    /// with `kAXErrorNoValue`, and every unsuccessful read used to collapse into
+    /// nil, which this function read as "cannot observe". See
+    /// `composerTextValue()`, which now distinguishes empty from absent. With that
+    /// separated, an emptied composer reads back as "" and the clear is observed
+    /// directly, which is the honest signal rather than an inference.
+    ///
+    /// The app and a real window are still required to be present. That is what
+    /// keeps the dangerous case out: if WhatsApp quit or lost its window after the
+    /// submit, nothing was observed and this returns false, so the caller reports
+    /// `.sentUnverified` rather than inventing a success.
     static func composerCleared(expected: String) -> Bool {
         guard !expected.isEmpty else { return false }
-        // A vanished app cannot be observed, so nothing can be verified about it.
-        guard whatsAppPID() != nil else { return false }
+        // A vanished app, or one with no window, cannot be observed at all.
+        guard whatsAppPID() != nil, whatsAppHasWindow() else { return false }
+        // Nil here means the composer element is genuinely absent from the tree,
+        // not merely empty: an empty composer now reads back as "". Absent is not
+        // an observation of a clear, so it does not count as one.
         guard let text = composerTextValue() else { return false }
         // `contains` rather than `!=`: if the body is still sitting there with a
-        // draft attached, it has not been sent.
+        // draft attached to it, it has not been sent.
         return !text.contains(expected)
     }
 
@@ -195,9 +236,15 @@ enum WhatsAppAccessibility {
     /// operation explicit before writing the confirmed body.
     static func replaceComposerText(with text: String) -> Bool {
         guard let composer = composerElement() else { return false }
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(composer, kAXValueAttribute as CFString, &value) == .success,
-              let current = value as? String else { return false }
+        // Read through `composerTextValue()`, not with a raw `AXValue` copy. An
+        // empty WhatsApp composer answers that attribute with `kAXErrorNoValue`,
+        // so reading it directly and bailing on failure meant this function
+        // returned false for an EMPTY composer, which is precisely the case it
+        // exists to serve: the cold launch where the deep link's prefill did not
+        // land. The caller saw that false as "the compose text did not match the
+        // confirmed message" and aborted a send that was one AX write away from
+        // being ready.
+        guard let current = composerTextValue() else { return false }
         var selectedRange = CFRange(location: 0, length: (current as NSString).length)
         guard AXUIElementSetAttributeValue(composer, kAXSelectedTextRangeAttribute as CFString,
                                            AXValueCreate(.cfRange, &selectedRange)!) == .success,

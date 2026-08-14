@@ -43,6 +43,10 @@ enum WhatsAppComposeWaiter {
         /// The composer already holds text that is not the confirmed body, so it
         /// is someone's draft. Voicy refuses rather than overwriting it.
         case composerHasDraft
+        /// The composer is exposed and empty: WhatsApp has not applied the deep
+        /// link's prefill yet. Transient, and worth waiting out rather than
+        /// writing over.
+        case composerNotPrefilled
         /// Accessibility permission is not granted, so nothing can be observed.
         case notTrusted
 
@@ -54,6 +58,7 @@ enum WhatsAppComposeWaiter {
             case .sendButtonNotFound: return "the WhatsApp send button was not found"
             case .composeTextMismatch: return "the WhatsApp compose text did not match the confirmed message"
             case .composerHasDraft: return "the WhatsApp chat already has an unsent draft in the composer, and Voicy will not overwrite it"
+            case .composerNotPrefilled: return "WhatsApp has not filled the composer with the message yet"
             case .notTrusted: return "Accessibility permission is not granted"
             }
         }
@@ -113,6 +118,10 @@ enum WhatsAppComposeWaiter {
         var timeout: TimeInterval = 6.0
         var pollInterval: TimeInterval = 0.05
         var maxAttempts: Int = 120
+        /// How long an empty composer is left alone before Voicy writes into it,
+        /// so WhatsApp's own deep-link prefill gets first chance. Only the prefill
+        /// leaves the chat in a state where a send button exists.
+        var prefillGrace: TimeInterval = 3.0
         /// Monotonic-ish source of "now", in seconds.
         var now: () -> TimeInterval = { Date().timeIntervalSinceReferenceDate }
         /// Blocking wait between polls. Pumps the main run loop instead of a
@@ -160,7 +169,10 @@ enum WhatsAppComposeWaiter {
 
         while true {
             attempts += 1
-            switch firstUnsatisfied(probe, expectedText: expectedText) {
+            // Writing into an empty composer is held back until WhatsApp has had
+            // `prefillGrace` to do it properly itself.
+            let mayWrite = (options.now() - start) >= options.prefillGrace
+            switch firstUnsatisfied(probe, expectedText: expectedText, mayWrite: mayWrite) {
             case nil:
                 return .ready(attempts: attempts, elapsedMs: (options.now() - start) * 1000)
             case .some(let cause):
@@ -182,12 +194,23 @@ enum WhatsAppComposeWaiter {
 
     /// The first stage that is not satisfied, in dependency order, or nil when
     /// all of them are.
-    static func firstUnsatisfied(_ probe: Probe, expectedText: String? = nil) -> Failure? {
+    /// - Parameter mayWrite: whether Voicy is allowed to write the body into an
+    ///   empty composer on this poll. False early in the wait, so WhatsApp's own
+    ///   prefill gets first chance. See the note at the write site.
+    static func firstUnsatisfied(_ probe: Probe, expectedText: String? = nil,
+                                 mayWrite: Bool = true) -> Failure? {
         if !probe.isTrusted() { return .notTrusted }
         if !probe.appIsRunning() { return .appNotRunning }
         if !probe.hasWindow() { return .windowNotFound }
         guard let text = probe.composeText() else { return .composerNotFound }
-        if !probe.sendButtonExists() { return .sendButtonNotFound }
+        // The composer's contents are reconciled BEFORE the send affordance is
+        // required, and that order matters. WhatsApp only shows a send button once
+        // the composer has something in it. Checking for the button first made the
+        // two conditions circular: no text meant no button, no button meant an
+        // abort, and the abort happened before the step that would have put the
+        // text there. A cold launch, whose composer starts empty, could therefore
+        // never get past this check, and it reported "the WhatsApp send button was
+        // not found" while the real problem was that nothing had been typed yet.
         if let expectedText, text != expectedText {
             // The composer holds something other than the confirmed body. There
             // are two very different reasons for that and they must not share a
@@ -214,10 +237,29 @@ enum WhatsAppComposeWaiter {
             // would turn every successful send into "delivery cannot be
             // confirmed".
             guard text.isEmpty else { return .composerHasDraft }
+            // An empty composer is given time to be filled by WhatsApp ITSELF
+            // before Voicy writes into it, and that patience is load bearing.
+            //
+            // Measured: after an AX write, WhatsApp's chat bar still offers
+            // ChatBar_VoiceMessageButton and no send button, because setting
+            // `AXValue` changes the value the tree reports without running the
+            // text-changed handling that WhatsApp uses to decide it has a message
+            // to send. The deep link's own prefill does run it, and that is the
+            // path where the AX send button appears and a press actually delivers.
+            //
+            // So writing immediately raced WhatsApp's prefill and won, leaving a
+            // composer that looked correct through Accessibility and was not in a
+            // sendable state at all. Waiting first lets the working path work; the
+            // write stays as a genuine last resort for when the prefill never
+            // lands.
+            guard mayWrite else { return .composerNotPrefilled }
             guard probe.replaceComposeText(expectedText), probe.composeText() == expectedText else {
                 return .composeTextMismatch
             }
         }
+        // Checked last, once the composer holds the confirmed body and WhatsApp has
+        // had a reason to reveal its send affordance.
+        if !probe.sendButtonExists() { return .sendButtonNotFound }
         return nil
     }
 }
