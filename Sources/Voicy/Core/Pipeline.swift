@@ -543,8 +543,10 @@ final class Pipeline {
                 // confirmed, so the name is not learned and the user is told to
                 // check rather than being told it sent.
                 self.tellUserSendUnverified()
-            case .prefilledNotReady:
-                self.present(failure: .whatsappUnavailable)
+            case .prefilledNotReady(let reason):
+                // Pass the sender's specific cause through instead of collapsing
+                // every readiness failure into one generic line.
+                self.present(failure: .whatsappNotReady(reason: reason))
             case .blocked, .failed, .dryRun, .notAllowlisted:
                 self.present(failure: .whatsappUnavailable)
                 break

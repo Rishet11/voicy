@@ -40,6 +40,9 @@ enum WhatsAppComposeWaiter {
         case sendButtonNotFound
         /// The composer does not contain the exact confirmed body.
         case composeTextMismatch
+        /// The composer already holds text that is not the confirmed body, so it
+        /// is someone's draft. Voicy refuses rather than overwriting it.
+        case composerHasDraft
         /// Accessibility permission is not granted, so nothing can be observed.
         case notTrusted
 
@@ -50,6 +53,7 @@ enum WhatsAppComposeWaiter {
             case .composerNotFound: return "no compose field was found in any WhatsApp window"
             case .sendButtonNotFound: return "the WhatsApp send button was not found"
             case .composeTextMismatch: return "the WhatsApp compose text did not match the confirmed message"
+            case .composerHasDraft: return "the WhatsApp chat already has an unsent draft in the composer, and Voicy will not overwrite it"
             case .notTrusted: return "Accessibility permission is not granted"
             }
         }
@@ -116,8 +120,29 @@ enum WhatsAppComposeWaiter {
         /// notification delivery, so a WhatsApp launched DURING the wait is
         /// never seen by `runningApplications` and the wait times out even
         /// though the composer is ready. Tests inject a fake clock instead.
+        ///
+        /// It is driven to a deadline in a loop, and that is load bearing. A bare
+        /// `RunLoop.main.run(until:)` returns as soon as its nested invocation is
+        /// unwound, which is exactly what happens here: the send runs inside a
+        /// Task on the main actor, which is itself already inside a
+        /// `RunLoop.main.run` call. Measured on a real cold send, the bare
+        /// version delivered 700 polls in 375 ms when 700 polls at a 50 ms
+        /// interval should have taken 35 s. The whole cold-start budget was
+        /// therefore fiction: the attempt cap expired in a third of a second and
+        /// the sender reported "WhatsApp has no visible window yet" while
+        /// WhatsApp was still opening.
+        ///
+        /// When no input source is ready there is nothing to pump, so it naps
+        /// briefly rather than spinning a core.
         var sleep: (TimeInterval) -> Void = { interval in
-            RunLoop.main.run(until: Date().addingTimeInterval(interval))
+            let deadline = Date().addingTimeInterval(interval)
+            while true {
+                let remaining = deadline.timeIntervalSinceNow
+                if remaining <= 0 { return }
+                if !RunLoop.main.run(mode: .default, before: deadline) {
+                    Thread.sleep(forTimeInterval: min(remaining, 0.01))
+                }
+            }
         }
     }
 
@@ -164,6 +189,31 @@ enum WhatsAppComposeWaiter {
         guard let text = probe.composeText() else { return .composerNotFound }
         if !probe.sendButtonExists() { return .sendButtonNotFound }
         if let expectedText, text != expectedText {
+            // The composer holds something other than the confirmed body. There
+            // are two very different reasons for that and they must not share a
+            // code path:
+            //
+            //  * EMPTY. The deep link's prefill did not land, which is the normal
+            //    cold-launch state. Nothing of the user's is in there, so writing
+            //    the confirmed body is safe.
+            //
+            //  * NOT EMPTY. Somebody's text is in the composer. Voicy has no way
+            //    to tell a half typed draft from its own stale prefill, and the
+            //    two demand opposite handling. It used to overwrite either one:
+            //    `replaceComposeText` selects the whole existing range and writes
+            //    over it, so a draft the user was in the middle of typing was
+            //    destroyed with no copy kept anywhere. If instead the prefill had
+            //    landed on top of the draft, the composer held draft plus body and
+            //    overwriting it silently changed which words were sent.
+            //
+            // Refusing is the only option that keeps all three promises at once:
+            // the draft survives byte for byte, nothing is sent, and the user is
+            // told exactly why. Restoring the draft after sending was considered
+            // and rejected: it would leave text in the composer, which is the same
+            // signal the post-send check reads as "not sent", so a restored draft
+            // would turn every successful send into "delivery cannot be
+            // confirmed".
+            guard text.isEmpty else { return .composerHasDraft }
             guard probe.replaceComposeText(expectedText), probe.composeText() == expectedText else {
                 return .composeTextMismatch
             }

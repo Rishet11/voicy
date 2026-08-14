@@ -223,12 +223,23 @@ final class WhatsAppSender {
             }
             hatchFired = true
             waitForWhatsAppProcess(seconds: 60)
-            if let pid = WhatsAppAccessibility.whatsAppPID(), reopenWhatsApp(pid) {
-                log("REOPEN: Apple Event sent to WhatsApp without activation")
-            } else {
-                log("REOPEN: Apple Event was not accepted; trying non-activating unhide")
+            // The reopen is sent in no-reply mode, so a `true` here only means the
+            // event was handed to the event manager. It is NOT evidence that
+            // WhatsApp handled it or that a window will appear, and treating it as
+            // evidence meant the unhide and AX-action fallbacks below were never
+            // reachable on a running WhatsApp. Measured on this machine with the
+            // window closed to the tray: the reopen reports true and no window
+            // ever appears. So the reopen is now judged by its effect.
+            if let pid = WhatsAppAccessibility.whatsAppPID() {
+                let accepted = reopenWhatsApp(pid)
+                log("REOPEN: Apple Event handed off (accepted=\(accepted)); waiting to see whether a window appears")
+            }
+            waitForWhatsAppWindow(seconds: 3)
+            if !probe.hasWindow() {
+                log("REOPEN: no window after the Apple Event; trying non-activating unhide and the AX window action")
                 unhideWhatsApp()
-                _ = requestWindow()
+                let requested = requestWindow()
+                log("REOPEN: AX window action accepted=\(requested)")
             }
             // Kept as an injected compatibility hook for deterministic tests.
             // The shipped default is a no-op, so the production path never

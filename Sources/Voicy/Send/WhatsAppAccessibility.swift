@@ -134,11 +134,32 @@ enum WhatsAppAccessibility {
         return text
     }
 
-    /// Whether the composer no longer holds `expected` — the post-send
-    /// verification signal. A composer that has vanished counts as cleared.
+    /// Whether the composer no longer holds `expected`, which is the post-send
+    /// verification signal behind `.sentVerified`.
+    ///
+    /// This is the one function in the send path that is allowed to say "the
+    /// message went". It used to return true in two situations where nothing had
+    /// been observed at all:
+    ///
+    ///  * the composer was not exposed, because WhatsApp had quit or closed its
+    ///    window after the submit. A vanished composer was counted as cleared, so
+    ///    a user who quit WhatsApp mid-send was told the message was sent.
+    ///  * the composer held something merely DIFFERENT from the body. A leftover
+    ///    draft, or the body with a draft still attached to it, both compare
+    ///    unequal and were therefore read as a successful clear.
+    ///
+    /// Both are the failure the project rules put first: claiming a send that was
+    /// never observed. Cleared now means positively observed to no longer contain
+    /// the body, with WhatsApp still there to be observed. Anything less is not a
+    /// clear, and the caller reports `.sentUnverified` instead of inventing one.
     static func composerCleared(expected: String) -> Bool {
-        guard let text = composerTextValue() else { return true }
-        return text != expected
+        guard !expected.isEmpty else { return false }
+        // A vanished app cannot be observed, so nothing can be verified about it.
+        guard whatsAppPID() != nil else { return false }
+        guard let text = composerTextValue() else { return false }
+        // `contains` rather than `!=`: if the body is still sitting there with a
+        // draft attached, it has not been sent.
+        return !text.contains(expected)
     }
 
     /// Replace the composer text through Accessibility, never by sending

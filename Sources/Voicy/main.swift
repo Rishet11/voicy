@@ -23,6 +23,12 @@ runTestHarnessIfRequested()
 // the confirm card. The caller asserts the human confirmation.
 runSendTestIfRequested()
 
+// Live composer diagnostic: `--probe-composer`, `--probe-composer-set <text>`,
+// `--probe-composer-link <e164> <body>`. Reads WhatsApp's Accessibility tree and
+// reports what the deep link does to a composer that already holds a draft. It
+// never submits anything.
+runComposerProbeIfRequested()
+
 let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate

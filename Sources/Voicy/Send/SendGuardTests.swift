@@ -270,35 +270,85 @@ func runSendGuardTests() async -> (passed: Int, failed: Int) {
     let mismatch = await sender(openList, spy: OpenSpy(), probe: probe(text: "different"),
                                 submitted: mismatchReturns)
         .send(phone: firstContact, body: "hello", contactName: "Pulkit", dryRun: false)
-    t.equal(mismatch, .prefilledNotReady(reason: WhatsAppComposeWaiter.Failure.composeTextMismatch.reason),
-            "text mismatch aborts before submit")
-    t.equal(mismatchReturns.value, 0, "text mismatch never submits")
+    t.equal(mismatch, .prefilledNotReady(reason: WhatsAppComposeWaiter.Failure.composerHasDraft.reason),
+            "a composer holding other text aborts before submit")
+    t.equal(mismatchReturns.value, 0, "a composer holding other text never submits")
 
-    // A stale composer is replaced through the injected Accessibility setter,
-    // then read back exactly before Return is authorized.
-    var composerText = "stale text from an earlier attempt"
-    var replacements = 0
-    let replacementProbe = WhatsAppComposeWaiter.Probe(
+    // B1 and B2: the composer already holds the user's half typed draft.
+    //
+    // This used to be a data loss bug and a wrong message bug at the same time.
+    // `replaceComposerText` selected the whole existing range and wrote over it,
+    // so the draft was destroyed with no copy kept, and if the deep link's
+    // prefill had landed on top of the draft the composer held draft plus body
+    // and the overwrite silently changed which words were sent.
+    //
+    // The behaviour now: refuse, name the reason, touch nothing, send nothing.
+    var draftText = "half typed dr"
+    var draftReplacements = 0
+    let draftProbe = WhatsAppComposeWaiter.Probe(
         isTrusted: { true }, appIsRunning: { true }, hasWindow: { true },
-        composeText: { composerText },
+        composeText: { draftText },
         sendButtonExists: { true },
         replaceComposeText: { expected in
-            replacements += 1
-            composerText = expected
+            draftReplacements += 1
+            draftText = expected
             return true
         })
-    let replacementReturns = Counter()
-    let replacement = await sender(openList, spy: OpenSpy(), probe: replacementProbe,
-                                   submitted: replacementReturns)
+    let draftReturns = Counter()
+    let draftOutcome = await sender(openList, spy: OpenSpy(), probe: draftProbe,
+                                    submitted: draftReturns)
         .send(phone: firstContact, body: "new confirmed body", contactName: "Pulkit", dryRun: false)
-    t.equal(replacement, .sentVerified, "stale composer is replaced before send")
-    t.equal(composerText, "new confirmed body", "composer contains exactly the new body")
-    t.equal(replacements, 1, "stale composer is replaced once")
-    t.equal(replacementReturns.value, 1, "exact replacement permits one submit")
+    t.equal(draftOutcome, .prefilledNotReady(reason: WhatsAppComposeWaiter.Failure.composerHasDraft.reason),
+            "a draft in the composer aborts with a named reason")
+    t.equal(draftText, "half typed dr", "the user's draft is left byte for byte intact")
+    t.equal(draftReplacements, 0, "the user's draft is never overwritten")
+    t.equal(draftReturns.value, 0, "nothing is submitted while a draft is present")
 
+    // B1, the concatenated form: the prefill landed on top of the draft, so the
+    // composer holds draft plus body. Sending that would send words the user
+    // never confirmed.
+    let concatenated = WhatsAppComposeWaiter.Probe(
+        isTrusted: { true }, appIsRunning: { true }, hasWindow: { true },
+        composeText: { "half typed dr" + "new confirmed body" },
+        sendButtonExists: { true }, replaceComposeText: { _ in true })
+    let concatenatedReturns = Counter()
+    let concatenatedOutcome = await sender(openList, spy: OpenSpy(), probe: concatenated,
+                                          submitted: concatenatedReturns)
+        .send(phone: firstContact, body: "new confirmed body", contactName: "Pulkit", dryRun: false)
+    t.equal(concatenatedOutcome,
+            .prefilledNotReady(reason: WhatsAppComposeWaiter.Failure.composerHasDraft.reason),
+            "draft plus body is refused, never sent concatenated")
+    t.equal(concatenatedReturns.value, 0, "draft plus body never submits")
+
+    // The legitimate replacement case, which is the cold launch: the composer is
+    // exposed but EMPTY because the deep link's prefill did not land. There is
+    // nothing of the user's to lose, so writing the confirmed body is allowed,
+    // and it is still read back exactly before any submit is authorized.
+    var emptyComposer = ""
+    var emptyReplacements = 0
+    let emptyProbe = WhatsAppComposeWaiter.Probe(
+        isTrusted: { true }, appIsRunning: { true }, hasWindow: { true },
+        composeText: { emptyComposer },
+        sendButtonExists: { true },
+        replaceComposeText: { expected in
+            emptyReplacements += 1
+            emptyComposer = expected
+            return true
+        })
+    let emptyReturns = Counter()
+    let emptyOutcome = await sender(openList, spy: OpenSpy(), probe: emptyProbe,
+                                    submitted: emptyReturns)
+        .send(phone: firstContact, body: "new confirmed body", contactName: "Pulkit", dryRun: false)
+    t.equal(emptyOutcome, .sentVerified, "an empty composer is filled and sent")
+    t.equal(emptyComposer, "new confirmed body", "composer contains exactly the confirmed body")
+    t.equal(emptyReplacements, 1, "an empty composer is written exactly once")
+    t.equal(emptyReturns.value, 1, "an exact write permits one submit")
+
+    // The write into an empty composer failed. Still no submit, still a named
+    // cause: a mismatch we could not correct is not a send.
     let failedReplacement = WhatsAppComposeWaiter.Probe(
         isTrusted: { true }, appIsRunning: { true }, hasWindow: { true },
-        composeText: { "stale text" },
+        composeText: { "" },
         sendButtonExists: { true }, replaceComposeText: { _ in false })
     let failedReplacementReturns = Counter()
     let failedReplacementOutcome = await sender(openList, spy: OpenSpy(), probe: failedReplacement,
@@ -306,8 +356,22 @@ func runSendGuardTests() async -> (passed: Int, failed: Int) {
         .send(phone: firstContact, body: "new confirmed body", contactName: "Pulkit", dryRun: false)
     t.equal(failedReplacementOutcome,
             .prefilledNotReady(reason: WhatsAppComposeWaiter.Failure.composeTextMismatch.reason),
-            "failed exact replacement aborts with a named mismatch")
-    t.equal(failedReplacementReturns.value, 0, "failed exact replacement never submits")
+            "a failed write into an empty composer aborts with a named mismatch")
+    t.equal(failedReplacementReturns.value, 0, "a failed write never submits")
+
+    // B3: the draft is byte for byte identical to the message being sent. The
+    // composer already matches the confirmed body, so nothing is overwritten and
+    // exactly ONE submit is authorized. One message leaves, not two.
+    let identicalDraft = WhatsAppComposeWaiter.Probe(
+        isTrusted: { true }, appIsRunning: { true }, hasWindow: { true },
+        composeText: { "new confirmed body" },
+        sendButtonExists: { true }, replaceComposeText: { _ in false })
+    let identicalReturns = Counter()
+    let identicalOutcome = await sender(openList, spy: OpenSpy(), probe: identicalDraft,
+                                        submitted: identicalReturns)
+        .send(phone: firstContact, body: "new confirmed body", contactName: "Pulkit", dryRun: false)
+    t.equal(identicalOutcome, .sentVerified, "an identical draft sends once")
+    t.equal(identicalReturns.value, 1, "an identical draft submits exactly once, never twice")
 
     // The submit ran but the composer never cleared: Voicy reports the message
     // as unverified instead of claiming a send it could not observe. Nothing
@@ -320,6 +384,23 @@ func runSendGuardTests() async -> (passed: Int, failed: Int) {
     t.equal(uncleared, .sentUnverified, "an uncleared composer is reported as sentUnverified")
     t.equal(unclearedSpy.opened, 1, "the unverified path still opened the link once")
     t.equal(unclearedReturns.value, 1, "the unverified path submitted exactly once and never retried")
+
+    // A6: WhatsApp quits, or closes its window, AFTER the submit lands.
+    //
+    // The real `composerCleared` used to return true whenever the composer could
+    // not be read at all, on the theory that a vanished composer had been
+    // cleared. That turned "the app disappeared and we observed nothing" into
+    // `.sentVerified`, which is the one claim the project rules forbid outright.
+    // An unobservable composer is now not a clear.
+    t.equal(WhatsAppAccessibility.composerCleared(expected: ""), false,
+            "an empty expected body can never be verified as cleared")
+    let vanishedReturns = Counter()
+    let vanished = await sender(openList, spy: OpenSpy(), submitted: vanishedReturns,
+                                cleared: { _ in false })
+        .send(phone: firstContact, body: "hello", contactName: "Pulkit", dryRun: false)
+    t.equal(vanished, .sentUnverified,
+            "a composer that cannot be observed after submit is reported unverified, never verified")
+    t.equal(vanishedReturns.value, 1, "the vanished path submitted exactly once and never retried")
 
     // WhatsApp running but exposing no window: the escape hatch opens once
     // with activation, and when the window still never appears the outcome

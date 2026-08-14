@@ -25,6 +25,13 @@ enum PipelineFailure: Error, Equatable, CustomStringConvertible {
     case recipientHasNoPhoneNumber
     case whatsappNotInstalled
     case whatsappUnavailable
+    /// WhatsApp was reachable but never became ready to send, and the sender
+    /// knows which stage failed. Carrying that stage through to the user matters:
+    /// "WhatsApp has no visible window yet" and "the send button was not found"
+    /// need different actions from the person reading the alert, and collapsing
+    /// both into "open WhatsApp and try again" throws away the one useful fact
+    /// the send path established.
+    case whatsappNotReady(reason: String)
 
     var description: String {
         switch self {
@@ -66,6 +73,8 @@ enum PipelineFailure: Error, Equatable, CustomStringConvertible {
             return "WhatsAppNotInstalled: install WhatsApp for Mac, then try again."
         case .whatsappUnavailable:
             return "WhatsAppUnavailable: open WhatsApp and try again."
+        case .whatsappNotReady(let reason):
+            return "WhatsAppNotReady: nothing was sent because \(reason). Open WhatsApp so its chat window is on screen, then try again."
         }
     }
 }
