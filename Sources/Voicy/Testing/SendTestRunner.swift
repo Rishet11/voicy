@@ -24,6 +24,44 @@ import Foundation
 @MainActor
 func runSendTestIfRequested() {
     let args = CommandLine.arguments
+
+    // `--send-test-number <e164> <body>` aims the same live path at an explicit
+    // number instead of a spoken name.
+    //
+    // It exists because a name is not always resolvable: a duplicated contact
+    // card is correctly refused as ambiguous, and no amount of retrying will make
+    // Voicy guess between two identical names. For a repeated live test against a
+    // known number, the operator supplying the digits removes the guess entirely
+    // rather than relaxing the resolver.
+    //
+    // This does NOT weaken the send rails. SendGuard, the kill switch and the
+    // blocklist all still run inside `WhatsAppSender.send`, the confirm card is
+    // still the thing being asserted by whoever runs the flag, and the number is
+    // masked in every line it prints.
+    if let numberFlag = args.firstIndex(of: "--send-test-number") {
+        guard numberFlag + 2 < args.count,
+              !args[numberFlag + 1].hasPrefix("--"), !args[numberFlag + 2].hasPrefix("--") else {
+            print("[voicy] [send-test] usage: --send-test-number <e164 without +> <body>")
+            exit(2)
+        }
+        let phone = args[numberFlag + 1].filter(\.isNumber)
+        let body = args[numberFlag + 2]
+        guard !phone.isEmpty else {
+            print("[voicy] [send-test] FAIL: no digits in the supplied number")
+            exit(2)
+        }
+        let done = SendTestCompletionFlag()
+        var exitCode: Int32 = 1
+        Task { @MainActor in
+            exitCode = await SendTestRunner().runByNumber(phone: phone, body: body)
+            done.value = true
+        }
+        while !done.value {
+            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        exit(exitCode)
+    }
+
     guard let flag = args.firstIndex(of: "--send-test") else { return }
     guard flag + 2 < args.count, !args[flag + 1].hasPrefix("--"), !args[flag + 2].hasPrefix("--") else {
         print("[voicy] [send-test] usage: --send-test <spoken recipient> <body>")
@@ -53,6 +91,23 @@ private final class SendTestCompletionFlag {
 
 @MainActor
 private struct SendTestRunner {
+    /// Live send to an explicitly supplied number. Same sender, same rails, no
+    /// name resolution because there is no name to resolve.
+    func runByNumber(phone: String, body: String) async -> Int32 {
+        let before = NSWorkspace.shared.frontmostApplication?.localizedName ?? "unknown"
+        print("[voicy] [send-test] frontmost before: \(before)")
+        print("[voicy] [send-test] explicit number +...\(phone.suffix(4)) body: \(body.count) chars [content redacted]")
+        print("[voicy] [send-test] SENDING LIVE: one WhatsApp message to the supplied number.")
+
+        let outcome = await WhatsAppSender().send(phone: phone, body: body,
+                                                  contactName: nil, dryRun: false)
+        print("[voicy] [send-test] outcome: \(outcome)")
+
+        let after = NSWorkspace.shared.frontmostApplication?.localizedName ?? "unknown"
+        print("[voicy] [send-test] frontmost after: \(after) (focus held: \(before == after ? "YES" : "NO"))")
+        return outcome == .sentVerified ? 0 : 1
+    }
+
     func run(spoken: String, body: String) async -> Int32 {
         let before = NSWorkspace.shared.frontmostApplication?.localizedName ?? "unknown"
         print("[voicy] [send-test] frontmost before: \(before)")

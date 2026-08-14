@@ -65,7 +65,7 @@ enum ComposerProbeResolver {
 @MainActor
 func runComposerProbeIfRequested() {
     let args = CommandLine.arguments
-    let flags = ["--probe-composer", "--probe-composer-set", "--probe-composer-link", "--probe-window", "--probe-ax"]
+    let flags = ["--probe-composer", "--probe-composer-set", "--probe-composer-link", "--probe-window", "--probe-ax", "--probe-contact"]
     guard args.contains(where: { flags.contains($0) }) else { return }
 
     // Contact loading is async, so run the body in a Task and pump the main run
@@ -100,6 +100,38 @@ private func composerProbeBody(args: [String]) async {
     let initial = WhatsAppAccessibility.composerTextValue()
     print("[probe] composer exposed: \(initial != nil), length: \(initial?.count ?? -1)")
     print("[probe] send button present: \(WhatsAppAccessibility.whatsAppSendButtonExists())")
+
+    // Read-only contact lookup. Prints which contact owns a number, or which
+    // contacts a spoken name matches, so a live send can be aimed by NAME after
+    // confirming who that name is. Sends nothing and writes nothing.
+    if let query = value(after: "--probe-contact") {
+        let index = ContactIndex()
+        do {
+            try await index.load()
+        } catch {
+            print("[probe] contacts failed to load: \(error)")
+            return
+        }
+        let digits = query.filter(\.isNumber)
+        if !digits.isEmpty {
+            let matches = index.contacts.filter { contact in
+                contact.phones.contains { $0.e164.hasSuffix(digits) }
+            }
+            print("[probe] \(matches.count) contact(s) hold a number ending \(digits.suffix(4)):")
+            for contact in matches {
+                print("[probe]   \"\(contact.displayName)\" -> +...\(contact.preferredE164?.suffix(4) ?? "none")")
+            }
+        }
+        switch ContactResolver().resolve(spoken: query, contacts: index.contacts,
+                                        aliases: AliasStore().lookup) {
+        case .resolved(let contact):
+            print("[probe] spoken \"\(query)\" resolves to \"\(contact.displayName)\" +...\(contact.preferredE164?.suffix(4) ?? "none")")
+        case .ambiguous(let candidates):
+            print("[probe] spoken \"\(query)\" is ambiguous across \(candidates.count): \(candidates.map(\.displayName).joined(separator: ", "))")
+        case .notFound:
+            print("[probe] spoken \"\(query)\" matches no contact")
+        }
+    }
 
     if args.contains("--probe-ax") {
         let locked = (CGSessionCopyCurrentDictionary() as NSDictionary?)?["CGSSessionScreenIsLocked"]
