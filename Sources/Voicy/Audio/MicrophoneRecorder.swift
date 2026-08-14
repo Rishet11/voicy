@@ -24,6 +24,22 @@ final class MicrophoneRecorder {
     /// The 16 kHz mono Float32 samples captured since `start()`.
     var captured: [Float] { pcmSamples }
 
+    /// The newest `count` captured samples, copied out.
+    ///
+    /// This exists so the level meter does not have to touch `captured`. Handing
+    /// the whole array to another thread makes it multiply referenced, and the
+    /// very next `append` in the capture tap then has to duplicate the entire
+    /// buffer to keep copy-on-write semantics. That copy lands on the audio
+    /// thread and grows with the length of the recording: at 60 frames a second
+    /// on a two minute utterance it is a 7 MB reallocation per frame. Copying a
+    /// fixed 30 ms tail instead is 480 floats regardless of how long the user
+    /// has been talking.
+    func recentSamples(_ count: Int) -> [Float] {
+        guard count > 0, !pcmSamples.isEmpty else { return [] }
+        let start = max(0, pcmSamples.count - count)
+        return Array(pcmSamples[start...])
+    }
+
     // MARK: Onset instrumentation
     //
     // The augmented corpus measured that losing the first 250 ms of an

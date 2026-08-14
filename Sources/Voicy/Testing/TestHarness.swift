@@ -34,7 +34,7 @@ import Foundation
 func runTestHarnessIfRequested() {
     let args = CommandLine.arguments
     let modes = ["--test-audio", "--test-audio-suite", "--unit-tests", "--test-stress", "--test-latency",
-                 "--test-wer", "--test-onset", "--test-stream"]
+                 "--test-wer", "--test-onset", "--test-stream", "--test-meter", "--test-meter-live"]
     guard args.contains(where: { modes.contains($0) }) else { return }
 
     let done = CompletionFlag()
@@ -153,6 +153,14 @@ struct TestHarness {
 
         if has("--test-onset") {
             await runOnsetProbe()
+        }
+
+        if has("--test-meter") {
+            failures += Int(runMeterProbe(path: value(for: "--test-meter")))
+        }
+
+        if has("--test-meter-live") {
+            failures += Int(runLiveMeterProbe(seconds: 6))
         }
 
         if has("--test-latency") {

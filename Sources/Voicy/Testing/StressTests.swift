@@ -137,6 +137,88 @@ func runStressTests(quiet: Bool) -> Int {
                                   detail: "duplicates disappeared instead of asking"))
     }
 
+    // MARK: Recording pill level meter
+    //
+    // Regression cover for the "the pill feels dead" fix. These lock the four
+    // properties that made it dead: silence has to be still, room noise has to be
+    // gated rather than merely small, normal speech has to land in the usable
+    // middle of the range instead of the bottom eighth, and there has to be
+    // exactly one smoothing stage.
+
+    let meterSilence = [Float](repeating: 0, count: LevelMeter.windowSamples)
+    if LevelMeter.level(tail: meterSilence[...]) == 0 {
+        pass("meter silence is still", "digital silence maps to bar height exactly 0")
+    } else {
+        results.append(CaseResult(name: "meter silence is still", status: "FAIL",
+                                  detail: "silence produced a nonzero bar height"))
+    }
+
+    let quietNoiseRMS: Float = 0.001
+    if LevelMeter.level(rms: quietNoiseRMS) == 0 {
+        pass("meter gates room noise",
+             String(format: "%.1f dBFS is below the %.0f dBFS floor and maps to 0",
+                    LevelMeter.dbFS(quietNoiseRMS), LevelMeter.floorDBFS))
+    } else {
+        results.append(CaseResult(name: "meter gates room noise", status: "FAIL",
+                                  detail: "noise below the meter floor still moved the bars"))
+    }
+
+    // Speech at -30 dBFS is an ordinary live level. Under the old linear
+    // `rms / 0.25` curve it produced a bar height of 0.126, which is why normal
+    // speech lived in the bottom eighth of the meter and the bars barely moved.
+    let normalSpeechRMS: Float = pow(10, -30.0 / 20.0)
+    let normalLevel = LevelMeter.level(rms: normalSpeechRMS)
+    let oldCurveLevel = min(1, normalSpeechRMS / 0.25)
+    if normalLevel > 0.4 && normalLevel < 0.6 && normalLevel > oldCurveLevel * 2 {
+        pass("meter curve uses its range",
+             String(format: "-30 dBFS speech maps to %.2f, was %.2f on the old linear curve",
+                    normalLevel, oldCurveLevel))
+    } else {
+        results.append(CaseResult(name: "meter curve uses its range", status: "FAIL",
+                                  detail: String(format: "-30 dBFS mapped to %.3f", normalLevel)))
+    }
+
+    let windowMs = Double(LevelMeter.windowSamples) / 16.0
+    if windowMs >= 20 && windowMs <= 50 {
+        pass("meter window tracks syllables",
+             String(format: "%.0f ms window, inside the 20 to 50 ms syllable band", windowMs))
+    } else {
+        results.append(CaseResult(name: "meter window tracks syllables", status: "FAIL",
+                                  detail: String(format: "%.0f ms window is outside 20 to 50 ms", windowMs)))
+    }
+
+    // A loud transient must reach the top of the meter within ONE frame. This is
+    // the "responds within one frame of speech starting" requirement, and it is
+    // what a second smoothing stage used to prevent.
+    let loudFrame = [Float](repeating: 0.2, count: LevelMeter.windowSamples)
+    let loudLevel = LevelMeter.level(tail: loudFrame[...])
+    if loudLevel > 0.7 {
+        pass("meter reacts in one frame",
+             String(format: "a single %.0f dBFS window reaches %.2f with no ramp",
+                    LevelMeter.dbFS(0.2), loudLevel))
+    } else {
+        results.append(CaseResult(name: "meter reacts in one frame", status: "FAIL",
+                                  detail: String(format: "a loud window only reached %.3f", loudLevel)))
+    }
+
+    // The ring buffer must hand back exactly what was pushed. It used to apply a
+    // second exponential smoothing on top of an already averaged level, so a full
+    // scale push read back as 0.45.
+    let ringReadback = MainActor.assumeIsolated { () -> Float in
+        let levels = RecordingLevels()
+        levels.push(1.0)
+        return levels.bars.last ?? 0
+    }
+    if ringReadback == 1.0 {
+        pass("meter has one smoothing stage", "the ring buffer returns the pushed level unchanged")
+    } else {
+        results.append(CaseResult(name: "meter has one smoothing stage", status: "FAIL",
+                                  detail: String(format: "pushed 1.0 and read back %.3f", ringReadback)))
+    }
+
+    skip("meter looks alive on screen",
+         "bar heights are measured by --test-meter; whether the rendered pill reads as alive needs a person watching it")
+
     print("=== stress tests ===")
     for result in results {
         if quiet {

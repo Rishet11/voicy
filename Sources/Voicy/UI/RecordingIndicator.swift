@@ -16,7 +16,6 @@ import Observation
 @Observable
 final class RecordingLevels {
     private(set) var bars: [Float]
-    private var smoothed: Float = 0
     private let capacity: Int
 
     init(capacity: Int = Theme.Layout.waveformBarCount) {
@@ -24,14 +23,27 @@ final class RecordingLevels {
         self.bars = Array(repeating: 0, count: capacity)
     }
 
-    /// Feed one real RMS measurement (clamped to 0...1). A light exponential
-    /// smoothing makes the meter feel organic, but every visible change still
-    /// traces to an actual amplitude value. Shifts the ring buffer by one.
-    func push(_ rms: Float) {
-        let clamped = min(max(rms, 0), 1)
-        smoothed = smoothed * 0.55 + clamped * 0.45
+    /// Feed one real level measurement (clamped to 0...1) and shift the ring
+    /// buffer by one. Each bar is exactly one measured 30 ms RMS window, in
+    /// dBFS, straight from `LevelMeter`.
+    ///
+    /// There used to be an exponential smoothing stage here, on top of a level
+    /// that was already an average over a 250 ms window. Two smoothers in series
+    /// is why the pill looked dead, and this is the one that had to go: the other
+    /// is a physical average of real samples, while this one blurred each
+    /// historical bar into its neighbour and destroyed the syllable structure
+    /// that makes a waveform read as a voice. The bars are a scrolling history,
+    /// so smoothing ACROSS positions is not smoothing at all, it is smearing.
+    func push(_ level: Float) {
+        let clamped = min(max(level, 0), 1)
         if bars.count >= capacity { bars.removeFirst() }
-        bars.append(smoothed)
+        bars.append(clamped)
+    }
+
+    /// Flatten every bar. Called when the pill is shown or hidden so the tail of
+    /// the previous recording cannot appear as the start of the next one.
+    func reset() {
+        bars = Array(repeating: 0, count: capacity)
     }
 }
 
@@ -88,10 +100,16 @@ private struct RecordingDot: View {
 /// The live waveform: a row of bars whose heights are proportional to the most
 /// recent RMS samples, held in a rolling ring buffer so it reads as sound
 /// rather than a single pulsing blob. Driven entirely by `RecordingLevels`.
+///
+/// The bars carry no animation of their own. That is not an oversight: the
+/// levels arrive at 60 Hz, and the spring that used to be attached here took
+/// about 200 ms to settle, so every bar rendered a heavily lagged version of
+/// audio that was already 16 ms old. The requirement is that the pill responds
+/// within one frame of speech starting, and an interpolating spring is exactly
+/// what prevents that. The data is the animation.
 private struct Waveform: View {
     @Environment(\.colorScheme) private var scheme
     let bars: [Float]
-    private var reduceMotion: Bool { Theme.Motion.reduceMotionEnabled }
 
     var body: some View {
         let palette = Theme.Colors.palette(scheme)
@@ -105,7 +123,6 @@ private struct Waveform: View {
                            height: max(Theme.Layout.waveformMinBarHeight,
                                        Theme.Layout.waveformMinBarHeight
                                         + CGFloat(level) * Theme.Layout.waveformMaxBarHeight))
-                    .animation(reduceMotion ? Theme.Motion.plainFade : Theme.Motion.snappy, value: level)
             }
         }
     }
@@ -190,6 +207,7 @@ public final class RecordingIndicatorController {
     /// Reveal the pill at the top-center of the main screen.
     public func show() {
         transcript.clear()
+        levels.reset()
         positionTopCenter()
         panel.orderFrontRegardless()
     }
@@ -197,6 +215,7 @@ public final class RecordingIndicatorController {
     /// Hide the pill.
     public func hide() {
         transcript.clear()
+        levels.reset()
         panel.orderOut(nil)
     }
 
@@ -208,11 +227,14 @@ public final class RecordingIndicatorController {
         }
     }
 
-    /// Feed a real RMS amplitude. Safe to call from the audio capture thread.
-    public func updateLevel(_ rms: Float) {
-        Task { @MainActor in
-            self.levels.push(rms)
-        }
+    /// Feed one real measured level, 0...1, from `LevelMeter`.
+    ///
+    /// Called straight through rather than through a `Task` hop: this type is
+    /// already main-actor isolated and the caller is the main run loop's level
+    /// timer, so a hop would only add an allocation and a scheduling delay 60
+    /// times a second, and could deliver frames out of order under load.
+    public func updateLevel(_ level: Float) {
+        levels.push(level)
     }
 
     public var isVisible: Bool { panel.isVisible }

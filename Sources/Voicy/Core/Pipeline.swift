@@ -749,18 +749,37 @@ final class Pipeline {
 
     // MARK: - Level meter (real RMS, visually only)
 
+    /// Drives the pill's bars from the live capture buffer.
+    ///
+    /// Four things here are deliberate and were measured rather than guessed
+    /// (see `--test-meter`):
+    ///
+    ///  * 60 Hz, not 12.5 Hz. Syllable energy in speech sits around 4 to 8 Hz,
+    ///    so at 12.5 frames a second the meter samples barely twice per
+    ///    syllable, misses the peaks, and the row of bars looks frozen. The
+    ///    achieved rate is measured, not assumed.
+    ///  * a 30 ms window, not 250 ms. A 250 ms RMS spans a whole syllable and
+    ///    averages its rise and fall into one flat number, which is the single
+    ///    biggest reason the old meter barely moved.
+    ///  * a dBFS curve, not `rms / 0.25`. See `LevelMeter`.
+    ///  * a bounded tail read, not a copy of the whole buffer. See
+    ///    `MicrophoneRecorder.recentSamples`. This matters much more at 60 Hz
+    ///    than it did at 12.5 Hz.
+    ///
+    /// There is no synthetic component anywhere in this path. No sound means a
+    /// level of exactly 0, and the bars stop moving.
     private func startLevelMeter() {
         stopLevelMeter()
-        let timer = Timer(timeInterval: 0.08, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
+        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
+            // The timer is scheduled on the main run loop, so the callback is
+            // already on the main actor. Hopping through a Task per frame would
+            // add an allocation and a scheduling delay 60 times a second, and
+            // would deliver levels out of order under load.
+            MainActor.assumeIsolated {
                 guard let self else { return }
-                let tail = self.recorder.captured.suffix(4000)
+                let tail = self.recorder.recentSamples(LevelMeter.windowSamples)
                 guard !tail.isEmpty else { return }
-                var sum: Float = 0
-                for s in tail { sum += s * s }
-                let rms = (sum / Float(tail.count)).squareRoot()
-                // Normalize so a loud signal approaches the top of the meter.
-                self.recordingIndicator.updateLevel(min(1, rms / 0.25))
+                self.recordingIndicator.updateLevel(LevelMeter.level(tail: tail[...]))
             }
         }
         RunLoop.main.add(timer, forMode: .common)
