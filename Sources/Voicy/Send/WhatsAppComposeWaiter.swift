@@ -115,13 +115,22 @@ enum WhatsAppComposeWaiter {
     /// seconds, and when it is not, the sender's escape hatch (one activating
     /// open, then a longer second wait) takes over.
     struct Options {
-        var timeout: TimeInterval = 6.0
+        // 10 s, not 6 s. The two graces below mean readiness cannot be reached
+        // before 4 s when the send button is absent, and a 6 s ceiling left almost
+        // no margin after that: the wait was giving up two seconds after it first
+        // became willing to succeed. `maxAttempts` is kept consistent with
+        // timeout / pollInterval so neither bound silently shadows the other.
+        var timeout: TimeInterval = 10.0
         var pollInterval: TimeInterval = 0.05
-        var maxAttempts: Int = 120
+        var maxAttempts: Int = 220
         /// How long an empty composer is left alone before Voicy writes into it,
         /// so WhatsApp's own deep-link prefill gets first chance. Only the prefill
         /// leaves the chat in a state where a send button exists.
         var prefillGrace: TimeInterval = 3.0
+        /// How long a missing send button keeps the wait going before Voicy
+        /// proceeds without it and submits through the Return fallback. The button
+        /// is observably flaky; see the note at its check.
+        var sendButtonGrace: TimeInterval = 4.0
         /// Monotonic-ish source of "now", in seconds.
         var now: () -> TimeInterval = { Date().timeIntervalSinceReferenceDate }
         /// Blocking wait between polls. Pumps the main run loop instead of a
@@ -171,8 +180,11 @@ enum WhatsAppComposeWaiter {
             attempts += 1
             // Writing into an empty composer is held back until WhatsApp has had
             // `prefillGrace` to do it properly itself.
-            let mayWrite = (options.now() - start) >= options.prefillGrace
-            switch firstUnsatisfied(probe, expectedText: expectedText, mayWrite: mayWrite) {
+            let elapsedSoFar = options.now() - start
+            let mayWrite = elapsedSoFar >= options.prefillGrace
+            let requireSendButton = elapsedSoFar < options.sendButtonGrace
+            switch firstUnsatisfied(probe, expectedText: expectedText, mayWrite: mayWrite,
+                                    requireSendButton: requireSendButton) {
             case nil:
                 return .ready(attempts: attempts, elapsedMs: (options.now() - start) * 1000)
             case .some(let cause):
@@ -197,8 +209,12 @@ enum WhatsAppComposeWaiter {
     /// - Parameter mayWrite: whether Voicy is allowed to write the body into an
     ///   empty composer on this poll. False early in the wait, so WhatsApp's own
     ///   prefill gets first chance. See the note at the write site.
+    /// - Parameter requireSendButton: whether a missing send affordance still
+    ///   counts as not ready on this poll. False once the grace has passed, because
+    ///   the button is flaky and a Return fallback exists.
     static func firstUnsatisfied(_ probe: Probe, expectedText: String? = nil,
-                                 mayWrite: Bool = true) -> Failure? {
+                                 mayWrite: Bool = true,
+                                 requireSendButton: Bool = true) -> Failure? {
         if !probe.isTrusted() { return .notTrusted }
         if !probe.appIsRunning() { return .appNotRunning }
         if !probe.hasWindow() { return .windowNotFound }
@@ -259,7 +275,22 @@ enum WhatsAppComposeWaiter {
         }
         // Checked last, once the composer holds the confirmed body and WhatsApp has
         // had a reason to reveal its send affordance.
-        if !probe.sendButtonExists() { return .sendButtonNotFound }
+        //
+        // Preferred, not required. Measured across repeated live sends into the
+        // same chat, with WhatsApp's own prefill sitting in the composer, the AX
+        // send button is present on some attempts and absent on others: one run
+        // pressed it successfully, the next reported it missing after 6 s with the
+        // identical 13 character prefill in place. Treating it as mandatory turned
+        // that flakiness into a refusal to send at all.
+        //
+        // Dropping it after a grace period is safe against every hard rule here.
+        // `submitSend()` falls back to a Return delivered straight to WhatsApp's
+        // PID, and readiness has already established the app, a real window, and a
+        // composer holding byte for byte the confirmed body, which is what proves
+        // the right message is in the right chat. If the chat turns out not to be
+        // sendable, the composer simply does not clear and the outcome is
+        // `.sentUnverified`. That risks an unsent message, never a wrong one.
+        if requireSendButton, !probe.sendButtonExists() { return .sendButtonNotFound }
         return nil
     }
 }
