@@ -131,9 +131,36 @@ Voicy can decode real WhatsApp voice-note files locally. Transcription is not re
 
 ---
 
+## Built with AO
+
+Voicy was built inside [Agent Orchestrator](https://aoagents.dev/) during The Orchestra hackathon.
+
+One orchestrator session held the Kanban board and the plan. Worker sessions ran in isolated git worktrees, so unrelated parts of the app moved in parallel without conflicts:
+
+- **Speech pipeline** — `SpeechAnalyzer` streaming, live partials, latency measurement
+- **Recipient resolution** — fuzzy and phonetic contact matching, learned aliases, the 72-case eval harness
+- **Send path** — background Accessibility send, cold-start composer fallback, verification before claiming a send
+- **Landing page and docs** — separate worktree, never blocked the app
+
+What that setup actually changed:
+
+- The on-device `FoundationModels` cleanup pass was benchmarked in its own session and cut, after warm calls measured 859-909 ms against a 250 ms budget. The deterministic rules-only cleaner stayed in the live path. Details in `Sources/Voicy/Cleanup/LLM-FINDINGS.md`.
+- The send path was rewritten to read WhatsApp's Accessibility tree by PID and confirm the composer holds exactly the confirmed body before submitting, then verify the composer cleared. A mismatch aborts and reports `sentUnverified` instead of claiming success.
+- Every accuracy and latency number in this README came from an eval session, not an estimate.
+
+---
+
 ## Getting started
 
 **Requirements:** macOS 26+, Apple Silicon, WhatsApp Desktop installed.
+
+macOS 26 is a hard floor, and `Package.swift` now declares it. It previously
+declared macOS 14, which was a support claim nobody had ever tested. Transcription
+does have a real `SFSpeechRecognizer` fallback for older systems, and reading the
+code suggests macOS 14 would transcribe, without the live partial transcript,
+which has no fallback at all. That path has never been run on a macOS 14 or 15
+machine, so it is not advertised. If you need older systems, that fallback is the
+place to start, and it needs testing before anyone relies on it.
 
 ```bash
 git clone https://github.com/Rishet11/voicy.git
